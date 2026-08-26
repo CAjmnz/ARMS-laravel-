@@ -21,12 +21,22 @@ class Folder extends Model
         'depth',
         'is_published',
         'created_by',
+        'unpublished_by',
+        'unpublished_at',
+        'published_by',
+        'published_at',
+        'legacy_source_type',
+        'legacy_source_id',
+        'legacy_level',
+        'legacy_path',
     ];
 
     protected function casts(): array
     {
         return [
             'is_published' => 'boolean',
+            'unpublished_at' => 'datetime',
+            'published_at' => 'datetime',
         ];
     }
 

@@ -51,6 +51,15 @@ export default function AuthenticatedLayout({
             },
         ];
 
+        if (auth.permissions.includes('documents.view')) {
+            items.push({
+                active: route().current('documents.manage') ?? false,
+                href: route('documents.manage'),
+                icon: 'folder',
+                label: 'Document Management',
+            });
+        }
+
         if (auth.roles.includes('super-administrator')) {
             items.push(
                 {

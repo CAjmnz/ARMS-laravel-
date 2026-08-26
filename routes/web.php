@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DepartmentController;
+use App\Http\Controllers\FolderManagementController;
 use App\Http\Controllers\SubsidiaryController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RoleReferenceController;
@@ -27,6 +28,15 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::get('/documents/manage/{folder?}', [FolderManagementController::class, 'index'])
+        ->name('documents.manage');
+    Route::post('/documents/manage/{folder}/folders', [FolderManagementController::class, 'store'])
+        ->name('documents.folders.store');
+    Route::patch('/documents/manage/{folder}/publish', [FolderManagementController::class, 'publish'])
+        ->name('documents.folders.publish');
+    Route::patch('/documents/manage/{folder}/unpublish', [FolderManagementController::class, 'unpublish'])
+        ->name('documents.folders.unpublish');
 
     Route::resource('/administration/subsidiaries', SubsidiaryController::class)
         ->except(['create', 'edit', 'show'])
