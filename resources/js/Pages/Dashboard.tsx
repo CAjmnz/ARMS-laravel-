@@ -37,6 +37,24 @@ interface AccountDetails {
     subsidiary: string | null;
 }
 
+interface QuickFolder {
+    id: number;
+    name: string;
+    files: number;
+    url: string;
+}
+
+interface RecentDocument {
+    id: number;
+    name: string;
+    type: string;
+    folder: string;
+    modifiedAt: string | null;
+    access: string;
+    url: string;
+    viewerUrl: string | null;
+}
+
 interface DashboardProps {
     account: AccountDetails;
     activity: ActivityPoint[];
@@ -44,6 +62,8 @@ interface DashboardProps {
     greeting: string;
     lastLoginAt: string | null;
     summary: DashboardSummary;
+    quickFolders: QuickFolder[];
+    recentDocuments: RecentDocument[];
 }
 
 interface SummaryCardProps {
@@ -103,6 +123,8 @@ export default function Dashboard({
     greeting,
     lastLoginAt,
     summary,
+    quickFolders,
+    recentDocuments,
 }: DashboardProps) {
     const { auth } = usePage().props;
     const canManageUsers = auth.permissions.includes('users.manage');
@@ -190,6 +212,82 @@ export default function Dashboard({
                             description="Active in the last 15 minutes"
                             icon="users"
                         />
+                    </div>
+                </section>
+
+                <section className="rounded-3xl border border-stone-200 bg-white px-5 py-6 shadow-sm sm:px-6">
+                    <div className="flex items-center justify-between gap-3">
+                        <div>
+                            <h2 className="font-serif text-2xl text-[#102d25]">Suggested folders</h2>
+                            <p className="mt-1 text-sm text-stone-500">Recently updated folders you can access.</p>
+                        </div>
+                        <Link href={route('documents.manage')} className="text-sm font-semibold text-[#08613f] hover:underline">View all</Link>
+                    </div>
+                    {quickFolders.length ? (
+                        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                            {quickFolders.map((folder) => (
+                                <Link key={folder.id} href={folder.url} className="group flex h-[74px] items-center gap-3 rounded-2xl border border-stone-200 bg-[#f8faf9] px-4 transition hover:border-emerald-300 hover:bg-emerald-50/40 hover:shadow-sm">
+                                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-[#08613f] shadow-sm ring-1 ring-stone-200">
+                                        <ArmsIcon name="folder" className="h-5 w-5" />
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-semibold text-[#073d2f]">{folder.name}</span>
+                                        <span className="block truncate text-xs text-stone-500">{folder.files} {folder.files === 1 ? 'file' : 'files'}</span>
+                                    </span>
+                                    <span className="text-lg leading-none text-stone-400 transition group-hover:text-[#08613f]">⋮</span>
+                                </Link>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="mt-5 rounded-xl bg-stone-50 px-4 py-6 text-center text-sm text-stone-500">No folders available.</p>
+                    )}
+
+                    <div className="mt-7 border-t border-stone-100 pt-6">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <h2 className="font-serif text-2xl text-[#102d25]">Suggested files</h2>
+                                <p className="mt-1 text-sm text-stone-500">Your most recent authorized documents.</p>
+                            </div>
+                            <span className="text-sm text-stone-500">{recentDocuments.length} {recentDocuments.length === 1 ? 'file' : 'files'}</span>
+                        </div>
+
+                        {recentDocuments.length ? (
+                            <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                                {recentDocuments.map((document) => {
+                                    const imageFile = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
+                                    return (
+                                        <article key={document.id} className="overflow-hidden rounded-2xl border border-stone-200 bg-[#f7f8f8] shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
+                                            <div className="flex h-12 items-center gap-3 px-3.5">
+                                                <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-white text-[#08613f] ring-1 ring-stone-200">
+                                                    <ArmsIcon name="document" className="h-4 w-4" />
+                                                </span>
+                                                <Link href={document.url} className="min-w-0 flex-1 truncate text-sm font-semibold text-[#073d2f] hover:text-[#08613f]">{document.name}</Link>
+                                                <span className="text-lg leading-none text-stone-400">⋮</span>
+                                            </div>
+                                            <Link href={document.url} className="block px-2 pb-2">
+                                                <div className="grid h-40 place-items-center overflow-hidden rounded-xl border border-stone-200 bg-white">
+                                                    {document.viewerUrl ? (
+                                                        imageFile ? (
+                                                            <img src={document.viewerUrl} alt="" className="h-full w-full object-contain" loading="lazy" />
+                                                        ) : (
+                                                            <iframe src={document.viewerUrl} title={'Preview of ' + document.name} tabIndex={-1} className="pointer-events-none h-full w-full border-0 bg-white" />
+                                                        )
+                                                    ) : (
+                                                        <ArmsIcon name="document" className="h-12 w-12 text-stone-400" />
+                                                    )}
+                                                </div>
+                                            </Link>
+                                            <div className="flex items-center gap-2 px-3.5 pb-3 pt-1 text-xs text-stone-500">
+                                                <span className="grid h-6 w-6 place-items-center rounded-full bg-emerald-100 font-semibold text-[#08613f]">{account.name?.charAt(0)?.toUpperCase() || 'A'}</span>
+                                                <span className="min-w-0 truncate">Modified · {formatDateTime(document.modifiedAt)}</span>
+                                            </div>
+                                        </article>
+                                    );
+                                })}
+                            </div>
+                        ) : (
+                            <p className="mt-5 rounded-xl bg-stone-50 px-4 py-10 text-center text-sm text-stone-500">No recent files are available.</p>
+                        )}
                     </div>
                 </section>
 

@@ -31,19 +31,18 @@ class FolderHierarchyService
 
     public function canSelectPath(User $user, Folder $folder): bool
     {
-        if ($folder->is_published || $folder->children()->exists()) {
+        if ($folder->children()->exists()) {
             return false;
         }
 
-        return $user->isSuperUser()
-            || ($user->roleLevel() === 3 && $folder->unpublished_by === $user->id);
+        return $user->isSuperUser() || ($user->roleLevel() === 3 && $folder->created_by === $user->id);
     }
 
     public function createChild(Folder $parent, string $name, User $actor, array $context): Folder
     {
         $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
 
-        if ($parent->is_published || ! $actor->can('create', $parent)) {
+        if (! $actor->can('create', $parent)) {
             abort(403);
         }
 
@@ -78,6 +77,85 @@ class FolderHierarchyService
             $this->audit($actor, 'folder.created', $folder, null, $folder->only(['parent_id', 'name', 'slug', 'depth']), $context);
 
             return $folder;
+        });
+    }
+
+    public function createRoot(string $name, int $subsidiaryId, int $departmentId, User $actor, array $context): Folder
+    {
+        if (! $actor->isSuperUser()) {
+            abort(403);
+        }
+
+        $name = trim(preg_replace('/\\s+/', ' ', $name) ?? '');
+        $slug = Str::slug($name);
+
+        if ($slug === '' || preg_match('/[\\x00-\\x1F\\x7F\\\\\\/]/u', $name)) {
+            throw ValidationException::withMessages(['name' => 'The filename contains invalid path characters.']);
+        }
+
+        return DB::transaction(function () use ($name, $slug, $subsidiaryId, $departmentId, $actor, $context): Folder {
+            if (Folder::query()->whereNull('parent_id')->where('slug', $slug)->lockForUpdate()->exists()) {
+                throw ValidationException::withMessages(['name' => 'A filename with this name already exists.']);
+            }
+
+            $folder = Folder::query()->create([
+                'parent_id' => null,
+                'subsidiary_id' => $subsidiaryId,
+                'department_id' => $departmentId,
+                'name' => $name,
+                'slug' => $slug,
+                'depth' => 0,
+                'is_published' => false,
+                'created_by' => $actor->id,
+                'unpublished_by' => $actor->id,
+                'unpublished_at' => now(),
+            ]);
+
+            $this->audit($actor, 'folder.root_created', $folder, null, $folder->only(['name', 'slug', 'depth']), $context);
+
+            return $folder;
+        });
+    }
+
+    public function rename(Folder $folder, string $name, User $actor, array $context): void
+    {
+        if (! $actor->can('update', $folder)) {
+            abort(403);
+        }
+
+        $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
+        $slug = Str::slug($name);
+
+        if ($slug === '' || preg_match('/[\\x00-\\x1F\\x7F\\\\\/]/u', $name)) {
+            throw ValidationException::withMessages(['name' => 'The folder name contains invalid path characters.']);
+        }
+
+        DB::transaction(function () use ($folder, $name, $slug, $actor, $context): void {
+            $duplicate = Folder::query()->where('parent_id', $folder->parent_id)->where('slug', $slug)->whereKeyNot($folder->id)->lockForUpdate()->exists();
+            if ($duplicate) {
+                throw ValidationException::withMessages(['name' => 'A folder with this name already exists in the selected path.']);
+            }
+
+            $previous = $folder->only(['name', 'slug']);
+            $folder->update(['name' => $name, 'slug' => $slug]);
+            $this->audit($actor, 'folder.renamed', $folder, $previous, $folder->fresh()->only(['name', 'slug']), $context);
+        });
+    }
+
+    public function delete(Folder $folder, User $actor, array $context): void
+    {
+        if (! $actor->can('delete', $folder)) {
+            abort(403);
+        }
+
+        DB::transaction(function () use ($folder, $actor, $context): void {
+            if ($folder->children()->exists() || $folder->documents()->exists()) {
+                throw ValidationException::withMessages(['folder' => 'This folder cannot be deleted while it contains folders or documents.']);
+            }
+
+            $previous = $folder->only(['parent_id', 'name', 'slug', 'depth']);
+            $folder->delete();
+            $this->audit($actor, 'folder.deleted', $folder, $previous, null, $context);
         });
     }
 

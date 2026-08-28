@@ -29,6 +29,8 @@ class DashboardStatisticsService
             ],
             'documentStatus' => $status,
             'activity' => $this->activity($now),
+            'quickFolders' => $this->quickFolders($user),
+            'recentDocuments' => $this->recentDocuments($user),
             'account' => [
                 'name' => $user->name,
                 'employeeId' => $user->employee_id,
@@ -99,6 +101,83 @@ class DashboardStatisticsService
                 ];
             })
             ->all();
+    }
+
+    /**
+     * @return array<int, array{id:int,name:string,files:int,url:string}>
+     */
+    private function quickFolders(User $user): array
+    {
+        return Folder::query()
+            ->whereNull('parent_id')
+            ->withCount('documents')
+            ->latest('updated_at')
+            ->limit(6)
+            ->get()
+            ->filter(fn (Folder $folder) => $user->can('view', $folder))
+            ->take(4)
+            ->map(fn (Folder $folder) => [
+                'id' => $folder->id,
+                'name' => $folder->name,
+                'files' => $folder->documents_count,
+                'url' => route('documents.manage', $folder),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return array<int, array{id:int,name:string,type:string,folder:string,modifiedAt:?string,access:string,url:string,viewerUrl:?string}>
+     */
+    private function recentDocuments(User $user): array
+    {
+        return Document::query()
+            ->with([
+                'folder:id,parent_id,name',
+                'latestVersion' => fn ($query) => $query->select([
+                    'document_versions.id',
+                    'document_versions.document_id',
+                    'document_versions.extension',
+                    'document_versions.scan_status',
+                ]),
+            ])
+            ->latest('updated_at')
+            ->limit(30)
+            ->get()
+            ->filter(fn (Document $document) => $user->can('view', $document))
+            ->take(6)
+            ->map(function (Document $document) use ($user): array {
+                return [
+                    'id' => $document->id,
+                    'name' => $document->title.'.'.strtolower($document->latestVersion?->extension ?? ''),
+                    'type' => strtoupper($document->latestVersion?->extension ?? 'FILE'),
+                    'folder' => $this->folderPath($document->folder),
+                    'modifiedAt' => $document->updated_at?->toIso8601String(),
+                    'access' => $user->can('download', $document) ? 'View & download' : 'View only',
+                    'url' => route('documents.show', $document),
+                    'viewerUrl' => $document->latestVersion?->scan_status === 'ready'
+                        ? route('documents.viewer', $document)
+                        : null,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    private function folderPath(?Folder $folder): string
+    {
+        if (! $folder) {
+            return 'Documents';
+        }
+
+        $parts = [];
+        $cursor = $folder;
+        while ($cursor) {
+            array_unshift($parts, $cursor->name);
+            $cursor = $cursor->parent()->first(['id', 'parent_id', 'name']);
+        }
+
+        return implode(' / ', $parts);
     }
 
     private function activeSessionCount(CarbonImmutable $now): int

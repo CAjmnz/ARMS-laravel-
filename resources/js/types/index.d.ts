@@ -20,5 +20,8 @@ export type PageProps<
     };
     flash: {
         success?: string;
+        error?: string;
+        warning?: string;
+        info?: string;
     };
 };

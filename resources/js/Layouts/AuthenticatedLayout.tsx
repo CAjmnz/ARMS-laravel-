@@ -37,9 +37,12 @@ export default function AuthenticatedLayout({
     header,
     title = 'Dashboard',
 }: PropsWithChildren<AuthenticatedLayoutProps>) {
-    const { auth } = usePage().props;
+    const page = usePage();
+    const { auth, flash, errors } = page.props;
     const [sidebarOpen, setSidebarOpen] = useState(false);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.localStorage.getItem('arms-sidebar-collapsed') === '1');
     const [now, setNow] = useState(() => new Date());
+    const [toast, setToast] = useState<{ type: 'success' | 'error' | 'warning' | 'info'; message: string } | null>(null);
 
     const navigation = useMemo<NavigationItem[]>(() => {
         const items: NavigationItem[] = [
@@ -82,12 +85,20 @@ export default function AuthenticatedLayout({
         }
 
         if (auth.permissions.includes('users.manage')) {
-            items.push({
-                active: route().current('roles.*') ?? false,
-                href: route('roles.index'),
-                icon: 'users',
-                label: 'Roles & Permissions',
-            });
+            items.push(
+                {
+                    active: route().current('users.*') ?? false,
+                    href: route('users.index'),
+                    icon: 'users',
+                    label: 'Users',
+                },
+                {
+                    active: route().current('roles.*') ?? false,
+                    href: route('roles.index'),
+                    icon: 'users',
+                    label: 'Roles & Permissions',
+                },
+            );
         }
 
         items.push({
@@ -105,6 +116,29 @@ export default function AuthenticatedLayout({
 
         return () => window.clearInterval(interval);
     }, []);
+
+    useEffect(() => {
+        const next = flash?.success
+            ? { type: 'success' as const, message: flash.success }
+            : flash?.error
+                ? { type: 'error' as const, message: flash.error }
+                : flash?.warning
+                    ? { type: 'warning' as const, message: flash.warning }
+                    : flash?.info
+                        ? { type: 'info' as const, message: flash.info }
+                        : Object.values(errors ?? {})[0]
+                            ? { type: 'error' as const, message: String(Object.values(errors ?? {})[0]) }
+                            : null;
+
+        if (!next) return;
+        setToast(next);
+        const timer = window.setTimeout(() => setToast(null), 4200);
+        return () => window.clearTimeout(timer);
+    }, [flash?.success, flash?.error, flash?.warning, flash?.info, errors]);
+
+    useEffect(() => {
+        window.localStorage.setItem('arms-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+    }, [sidebarCollapsed]);
 
     useEffect(() => {
         if (!sidebarOpen) {
@@ -145,11 +179,11 @@ export default function AuthenticatedLayout({
 
             <aside
                 aria-label="Primary navigation"
-                className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-gradient-to-b from-[#033b2d] to-[#012a21] text-white shadow-2xl transition-transform duration-200 lg:translate-x-0 ${
+                className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col bg-gradient-to-b from-[#033b2d] to-[#012a21] text-white shadow-2xl transition-all duration-200 lg:translate-x-0 ${sidebarCollapsed ? 'lg:w-24' : 'lg:w-72'} ${
                     sidebarOpen ? 'translate-x-0' : '-translate-x-full'
                 }`}
             >
-                <div className="flex items-start justify-between border-b border-white/10 px-7 py-8">
+                <div className={`flex items-start justify-between border-b border-white/10 py-8 ${sidebarCollapsed ? 'lg:px-4' : 'px-7'}`}>
                     <Link
                         href={route('dashboard')}
                         className="flex items-center gap-4"
@@ -157,7 +191,7 @@ export default function AuthenticatedLayout({
                         <div className="rounded-2xl border-2 border-[#d4a936] p-2 text-[#d4a936]">
                             <ArmsIcon name="shield" className="h-10 w-10" />
                         </div>
-                        <div>
+                        <div className={sidebarCollapsed ? 'lg:hidden' : ''}>
                             <p className="font-serif text-3xl tracking-wide">
                                 ARMS
                             </p>
@@ -177,8 +211,12 @@ export default function AuthenticatedLayout({
                     </button>
                 </div>
 
+                <button type="button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="absolute -right-4 top-24 hidden h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-[#08613f] shadow-lg transition hover:bg-emerald-50 lg:flex">
+                    <ArmsIcon name="chevron" className={`h-4 w-4 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`} />
+                </button>
+
                 <nav className="flex-1 space-y-2 px-4 py-8">
-                    <p className="px-4 pb-2 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-100/50">
+                    <p className={`px-4 pb-2 text-xs font-semibold uppercase tracking-[0.24em] text-emerald-100/50 ${sidebarCollapsed ? 'lg:hidden' : ''}`}>
                         Workspace
                     </p>
 
@@ -187,7 +225,8 @@ export default function AuthenticatedLayout({
                             key={item.label}
                             href={item.href}
                             onClick={() => setSidebarOpen(false)}
-                            className={`relative flex items-center gap-4 rounded-xl px-4 py-3.5 text-sm font-semibold transition ${
+                            title={sidebarCollapsed ? item.label : undefined}
+                            className={`relative flex items-center rounded-xl px-4 py-3.5 text-sm font-semibold transition ${sidebarCollapsed ? 'lg:justify-center lg:gap-0' : 'gap-4'} ${
                                 item.active
                                     ? 'bg-white/10 text-[#e8c85c]'
                                     : 'text-emerald-50/85 hover:bg-white/5 hover:text-white'
@@ -197,18 +236,18 @@ export default function AuthenticatedLayout({
                                 <span className="absolute inset-y-2 -left-4 w-1 rounded-r bg-[#d4a936]" />
                             )}
                             <ArmsIcon name={item.icon} />
-                            {item.label}
+                            <span className={sidebarCollapsed ? 'lg:hidden' : ''}>{item.label}</span>
                         </Link>
                     ))}
                 </nav>
 
-                <div className="m-5 rounded-2xl border border-white/15 bg-white/5 p-4">
+                <div className={`m-5 rounded-2xl border border-white/15 bg-white/5 p-4 ${sidebarCollapsed ? 'lg:m-3 lg:p-3' : ''}`}>
                     <div className="flex items-center gap-3">
                         <ArmsIcon
                             name="shield"
                             className="h-7 w-7 text-[#d4a936]"
                         />
-                        <div>
+                        <div className={sidebarCollapsed ? 'lg:hidden' : ''}>
                             <p className="text-sm font-semibold text-[#e8c85c]">
                                 Authorized
                             </p>
@@ -220,8 +259,8 @@ export default function AuthenticatedLayout({
                 </div>
             </aside>
 
-            <div className="min-h-screen lg:pl-72">
-                <header className="relative z-50 border-b border-stone-200 bg-white/90 px-5 py-5 backdrop-blur sm:px-8 lg:px-10">
+            <div className={`min-h-screen transition-[padding] duration-200 ${sidebarCollapsed ? 'lg:pl-24' : 'lg:pl-72'}`}>
+                <header className="sticky top-0 z-50 border-b border-stone-200 bg-white/95 px-5 py-5 shadow-sm backdrop-blur sm:px-8 lg:px-10">
                     <div className="flex min-h-16 items-center justify-between gap-5 pl-14 lg:pl-0">
                         <div>
                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8b7a57]">
@@ -316,6 +355,21 @@ export default function AuthenticatedLayout({
                 {header}
                 <main>{children}</main>
             </div>
+
+            {toast && (
+                <div className="fixed right-5 top-24 z-[120] w-[min(92vw,380px)]">
+                    <div className={'flex items-start gap-3 rounded-2xl border bg-white p-4 shadow-2xl ' + (toast.type === 'success' ? 'border-emerald-200' : toast.type === 'error' ? 'border-red-200' : toast.type === 'warning' ? 'border-amber-200' : 'border-sky-200')}>
+                        <span className={'mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg font-bold text-white ' + (toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-red-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-sky-500')}>
+                            {toast.type === 'success' ? '✓' : toast.type === 'error' ? '×' : toast.type === 'warning' ? '!' : 'i'}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                            <p className="font-semibold capitalize text-[#073d2f]">{toast.type}</p>
+                            <p className="mt-0.5 text-sm leading-5 text-stone-600">{toast.message}</p>
+                        </div>
+                        <button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification" className="rounded-lg p-1 text-xl leading-none text-stone-400 hover:bg-stone-100 hover:text-stone-700">×</button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

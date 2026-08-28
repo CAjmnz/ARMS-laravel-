@@ -45,6 +45,11 @@ class Folder extends Model
         return $this->belongsTo(self::class, 'parent_id');
     }
 
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');

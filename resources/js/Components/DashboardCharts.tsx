@@ -1,10 +1,13 @@
 import {
     ArcElement,
+    BarController,
     BarElement,
     CategoryScale,
     Chart as ChartJS,
+    DoughnutController,
     Filler,
     Legend,
+    LineController,
     LinearScale,
     LineElement,
     PointElement,
@@ -15,10 +18,13 @@ import { Chart, Doughnut } from 'react-chartjs-2';
 
 ChartJS.register(
     ArcElement,
+    BarController,
     BarElement,
     CategoryScale,
+    DoughnutController,
     Filler,
     Legend,
+    LineController,
     LinearScale,
     LineElement,
     PointElement,

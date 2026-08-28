@@ -31,6 +31,17 @@ class FolderPolicy
         return $user->isSuperUser();
     }
 
+    public function upload(User $user, Folder $folder): bool
+    {
+        if ($user->isSuperUser()) {
+            return true;
+        }
+
+        return $user->roleLevel() === 3
+            && (bool) $user->allowed_upload
+            && $folder->created_by === $user->id;
+    }
+
     public function publish(User $user, Folder $folder): bool
     {
         return $user->isSuperUser()
@@ -45,11 +56,9 @@ class FolderPolicy
     private function manage(User $user, Folder $folder): bool
     {
         if ($user->isSuperUser()) {
-            return ! $folder->is_published;
+            return true;
         }
 
-        return $user->roleLevel() === 3
-            && ! $folder->is_published
-            && $folder->unpublished_by === $user->id;
+        return $user->roleLevel() === 3 && $folder->created_by === $user->id;
     }
 }

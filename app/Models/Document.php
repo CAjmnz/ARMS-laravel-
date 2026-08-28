@@ -34,6 +34,11 @@ class Document extends Model
         return $this->belongsTo(Folder::class);
     }
 
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+
     public function versions(): HasMany
     {
         return $this->hasMany(DocumentVersion::class);
