@@ -9,6 +9,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RoleReferenceController;
 use App\Http\Controllers\UserRoleController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Controllers\SystemSettingsController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -79,6 +80,14 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::patch('/administration/users/{user}/role', [UserRoleController::class, 'update'])
         ->middleware('permission:users.manage')
         ->name('users.role.update');
+
+    Route::get('/administration/system', [SystemSettingsController::class, 'index'])->middleware('permission:system-settings.manage')->name('system.index');
+    Route::patch('/administration/system/settings', [SystemSettingsController::class, 'updateSettings'])->middleware('permission:system-settings.manage')->name('system.settings.update');
+    Route::post('/administration/system/file-types', [SystemSettingsController::class, 'storeFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.store');
+    Route::patch('/administration/system/file-types/{fileType}', [SystemSettingsController::class, 'updateFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.update');
+    Route::patch('/administration/system/file-types/{fileType}/toggle', [SystemSettingsController::class, 'toggleFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.toggle');
+    Route::delete('/administration/system/file-types/{fileType}', [SystemSettingsController::class, 'destroyFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.destroy');
+    Route::delete('/administration/system/logs', [SystemSettingsController::class, 'clearLogs'])->middleware('permission:system-settings.manage')->name('system.logs.clear');
 });
 
 require __DIR__.'/auth.php';

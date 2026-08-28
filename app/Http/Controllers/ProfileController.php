@@ -18,9 +18,23 @@ class ProfileController extends Controller
      */
     public function edit(Request $request): Response
     {
+        $user = $request->user()->loadMissing(['subsidiary', 'department', 'roles']);
+
         return Inertia::render('Profile/Edit', [
-            'mustVerifyEmail' => $request->user() instanceof MustVerifyEmail,
+            'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => session('status'),
+            'profile' => [
+                'employee_id' => $user->employee_id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'position' => $user->position,
+                'subsidiary' => $user->subsidiary?->name,
+                'department' => $user->department?->name,
+                'account_status' => $user->account_status,
+                'role' => $user->roles->sortByDesc(fn ($role) => $role->level())->first()?->name,
+                'member_since' => optional($user->created_at)->toIso8601String(),
+                'last_login_at' => optional($user->last_login_at)->toIso8601String(),
+            ],
         ]);
     }
 
@@ -37,7 +51,7 @@ class ProfileController extends Controller
 
         $request->user()->save();
 
-        return Redirect::route('profile.edit');
+        return Redirect::route('profile.edit')->with('success', 'Profile information updated successfully.');
     }
 
     /**

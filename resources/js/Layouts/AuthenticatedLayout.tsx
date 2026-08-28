@@ -101,6 +101,15 @@ export default function AuthenticatedLayout({
             );
         }
 
+        if (auth.permissions.includes('system-settings.manage')) {
+            items.push({
+                active: route().current('system.*') ?? false,
+                href: route('system.index'),
+                icon: 'gear',
+                label: 'System Settings',
+            });
+        }
+
         items.push({
             active: route().current('profile.*') ?? false,
             href: route('profile.edit'),
