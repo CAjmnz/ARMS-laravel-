@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EncryptsRouteKey;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Subsidiary extends Model
 {
-    use HasFactory, SoftDeletes;
+    use EncryptsRouteKey, HasFactory, SoftDeletes;
 
     protected $fillable = ['code', 'name', 'status'];
 

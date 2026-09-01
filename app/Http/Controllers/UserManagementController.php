@@ -85,6 +85,7 @@ class UserManagementController extends Controller
 
             return [
                 'id' => (int) $user->id,
+                'route_key' => User::encryptRouteKey((int) $user->id),
                 'username' => $user->employee_id,
                 'name' => $user->name,
                 'position' => $user->position,

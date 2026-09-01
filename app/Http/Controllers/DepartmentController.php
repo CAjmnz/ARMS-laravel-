@@ -36,6 +36,7 @@ class DepartmentController extends Controller
             ->withQueryString()
             ->through(fn (Department $department) => [
                 'id' => $department->id,
+                'route_key' => $department->getRouteKey(),
                 'name' => $department->name,
                 'status' => $department->status,
                 'subsidiary_id' => $department->subsidiary_id,

@@ -38,6 +38,7 @@ class DocumentController extends Controller
             ])
             ->latest('updated_at')->paginate($perPage)->withQueryString()->through(fn (Document $item) => [
                 'id' => $item->id,
+                'route_key' => $item->getRouteKey(),
                 'name' => $item->title,
                 'type' => strtoupper($item->latestVersion?->extension ?? 'document'),
                 'modified_at' => $item->updated_at?->toIso8601String(),
@@ -53,8 +54,8 @@ class DocumentController extends Controller
             ]);
 
         return Inertia::render('Documents/Files', [
-            'folder' => ['id' => $folder->id, 'name' => $folder->name, 'documents_count' => $folder->documents()->count()],
-            'breadcrumbs' => array_map(fn (Folder $item) => ['id' => $item->id, 'name' => $item->name], $hierarchy->breadcrumbs($folder)),
+            'folder' => ['id' => $folder->id, 'route_key' => $folder->getRouteKey(), 'name' => $folder->name, 'documents_count' => $folder->documents()->count()],
+            'breadcrumbs' => array_map(fn (Folder $item) => ['id' => $item->id, 'route_key' => $item->getRouteKey(), 'name' => $item->name], $hierarchy->breadcrumbs($folder)),
             'documents' => $documents,
             'filters' => ['search' => $search],
         ]);
@@ -69,7 +70,7 @@ class DocumentController extends Controller
         return Inertia::render('Documents/Show', [
             'document' => $this->payload($user, $document->load(['folder', 'creator', 'latestVersion.uploader'])),
             'destinations' => $user->can('move', $document)
-                ? Folder::query()->withCount('children')->orderBy('name')->get()->filter(fn (Folder $folder) => $user->can('upload', $folder))->map(fn (Folder $folder) => ['id' => $folder->id, 'name' => $folder->name])->values()
+                ? Folder::query()->withCount('children')->orderBy('name')->get()->filter(fn (Folder $folder) => $user->can('upload', $folder))->map(fn (Folder $folder) => ['id' => $folder->id, 'route_key' => $folder->getRouteKey(), 'name' => $folder->name])->values()
                 : [],
         ]);
     }
@@ -238,12 +239,13 @@ class DocumentController extends Controller
         $version = $document->latestVersion;
         return [
             'id' => $document->id,
+            'route_key' => $document->getRouteKey(),
             'name' => $document->title,
             'description' => $document->description,
             'status' => $document->status,
             'created_at' => $document->created_at?->toIso8601String(),
             'updated_at' => $document->updated_at?->toIso8601String(),
-            'folder' => ['id' => $document->folder->id, 'name' => $document->folder->name],
+            'folder' => ['id' => $document->folder->id, 'route_key' => $document->folder->getRouteKey(), 'name' => $document->folder->name],
             'uploader' => $version?->uploader?->name ?? $document->creator?->name ?? '—',
             'version' => $version ? ['type' => strtoupper($version->extension), 'size' => $version->size_bytes, 'status' => $version->scan_status] : null,
             'urls' => [

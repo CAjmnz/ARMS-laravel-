@@ -342,16 +342,21 @@ export default function AuthenticatedLayout({
             </div>
 
             {toast && (
-                <div className="fixed right-5 top-24 z-[120] w-[min(92vw,380px)]">
-                    <div className={'flex items-start gap-3 rounded-2xl border bg-white p-4 shadow-2xl ' + (toast.type === 'success' ? 'border-emerald-200' : toast.type === 'error' ? 'border-red-200' : toast.type === 'warning' ? 'border-amber-200' : 'border-sky-200')}>
-                        <span className={'mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-full text-lg font-bold text-white ' + (toast.type === 'success' ? 'bg-emerald-500' : toast.type === 'error' ? 'bg-red-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-sky-500')}>
-                            {toast.type === 'success' ? '✓' : toast.type === 'error' ? '×' : toast.type === 'warning' ? '!' : 'i'}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                            <p className="font-semibold capitalize text-[#073d2f]">{toast.type}</p>
-                            <p className="mt-0.5 text-sm leading-5 text-stone-600">{toast.message}</p>
+                <div className="fixed right-5 top-24 z-[120] w-[min(92vw,440px)]">
+                    <div className={'relative overflow-hidden rounded-2xl border bg-white shadow-[0_16px_40px_rgba(15,23,42,0.14)] ' + (toast.type === 'success' ? 'border-emerald-200 bg-emerald-50/40' : toast.type === 'error' ? 'border-red-200 bg-red-50/40' : toast.type === 'warning' ? 'border-amber-200 bg-amber-50/40' : 'border-sky-200 bg-sky-50/40')}>
+                        <div className="flex items-start gap-4 p-5 pb-6">
+                            <span className={'grid h-12 w-12 shrink-0 place-items-center rounded-full text-xl font-bold text-white shadow-sm ' + (toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-blue-500')}>
+                                {toast.type === 'success' ? '✓' : toast.type === 'error' ? '!' : toast.type === 'warning' ? '⚠' : 'i'}
+                            </span>
+                            <div className="min-w-0 flex-1 pt-0.5">
+                                <p className={'text-base font-bold capitalize ' + (toast.type === 'error' ? 'text-red-800' : 'text-arms-dark')}>{toast.type}</p>
+                                <p className="mt-1 text-sm leading-5 text-stone-700">{toast.message}</p>
+                            </div>
+                            <button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification" className="-mr-1 -mt-1 rounded-lg p-1.5 text-xl leading-none text-stone-500 transition hover:bg-white/80 hover:text-stone-800">×</button>
                         </div>
-                        <button type="button" onClick={() => setToast(null)} aria-label="Dismiss notification" className="rounded-lg p-1 text-xl leading-none text-stone-400 hover:bg-stone-100 hover:text-stone-700">×</button>
+                        <div className="absolute inset-x-0 bottom-0 h-1 bg-black/5">
+                            <div className={'h-full w-3/5 rounded-r-full ' + (toast.type === 'success' ? 'bg-emerald-600' : toast.type === 'error' ? 'bg-red-500' : toast.type === 'warning' ? 'bg-amber-500' : 'bg-blue-500')} />
+                        </div>
                     </div>
                 </div>
             )}

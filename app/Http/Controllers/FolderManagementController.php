@@ -48,6 +48,7 @@ class FolderManagementController extends Controller
             ->withQueryString()
             ->through(fn (Folder $item) => [
                 'id' => $item->id,
+                'route_key' => $item->getRouteKey(),
                 'name' => $item->name,
                 'children_count' => $item->children_count,
                 'documents_count' => $item->documents_count,
@@ -76,6 +77,7 @@ class FolderManagementController extends Controller
             ])
             ->latest('updated_at')->get()->map(fn (Document $item) => [
                 'id' => $item->id,
+                'route_key' => $item->getRouteKey(),
                 'name' => $item->title,
                 'type' => strtoupper($item->latestVersion?->extension ?? 'document'),
                 'modified_at' => $item->updated_at?->toIso8601String(),
@@ -93,6 +95,7 @@ class FolderManagementController extends Controller
         return Inertia::render('Documents/Manage', [
             'currentFolder' => $folder ? [
                 'id' => $folder->id,
+                'route_key' => $folder->getRouteKey(),
                 'name' => $folder->name,
                 'depth' => $folder->depth,
                 'documents_count' => $folder->documents()->count(),
@@ -100,7 +103,7 @@ class FolderManagementController extends Controller
                 'can_upload' => $user->can('upload', $folder),
             ] : null,
             'breadcrumbs' => $folder
-                ? array_map(fn (Folder $item) => ['id' => $item->id, 'name' => $item->name], $hierarchy->breadcrumbs($folder))
+                ? array_map(fn (Folder $item) => ['id' => $item->id, 'route_key' => $item->getRouteKey(), 'name' => $item->name], $hierarchy->breadcrumbs($folder))
                 : [],
             'folders' => $folders,
             'documents' => $documents,
@@ -114,6 +117,7 @@ class FolderManagementController extends Controller
 
                     return [
                         'id' => $item->id,
+                        'route_key' => $item->getRouteKey(),
                         'name' => $item->name,
                         'path' => '/'.implode('/', array_map(fn (Folder $crumb) => $crumb->name, $crumbs)),
                         'depth' => $item->depth,

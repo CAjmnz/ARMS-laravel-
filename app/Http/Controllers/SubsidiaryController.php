@@ -26,6 +26,7 @@ class SubsidiaryController extends Controller
             ->withQueryString()
             ->through(fn (Subsidiary $subsidiary) => [
                 'id' => $subsidiary->id,
+                'route_key' => $subsidiary->getRouteKey(),
                 'name' => $subsidiary->name,
                 'status' => $subsidiary->status,
                 'dependency_counts' => $service->dependencyCounts($subsidiary),

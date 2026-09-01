@@ -6,6 +6,7 @@ import { FormEvent, useState } from 'react';
 
 interface Department {
     id: number;
+    route_key: string;
     name: string;
     status: string;
     subsidiary_id: number;
@@ -81,7 +82,7 @@ export default function Departments({
 
         if (editing) {
             form.patch(
-                route('administration.departments.update', editing.id),
+                route('administration.departments.update', editing.route_key),
                 {
                     onSuccess: closeForm,
                 },
@@ -409,7 +410,7 @@ export default function Departments({
                                 router.delete(
                                     route(
                                         'administration.departments.destroy',
-                                        deleting.id,
+                                        deleting.route_key,
                                     ),
                                     {
                                         onSuccess: () => setDeleting(null),

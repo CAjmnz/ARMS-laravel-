@@ -49,15 +49,6 @@ class DocumentUploadService
             }
         }
 
-        $duplicateInFolder = DocumentVersion::query()
-            ->where('sha256', $originalMeta['sha256'])
-            ->whereHas('document', fn ($query) => $query->where('folder_id', $folder->id))
-            ->exists();
-
-        if ($duplicateInFolder) {
-            throw ValidationException::withMessages(['original_files' => 'An identical document already exists in this folder.']);
-        }
-
         $displayName = pathinfo($originalMeta['name'], PATHINFO_FILENAME);
         if (Document::query()->where('folder_id', $folder->id)->where('title', $displayName)->exists()) {
             throw ValidationException::withMessages(['original_files' => 'A document with this name already exists in this folder.']);

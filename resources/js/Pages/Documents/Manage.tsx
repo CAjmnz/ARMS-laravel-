@@ -5,6 +5,7 @@ import { DragEvent, FormEvent, useEffect, useRef, useState, useMemo } from 'reac
 
 interface Folder {
     id: number;
+    route_key: string;
     name: string;
     children_count: number;
     documents_count: number;
@@ -20,7 +21,7 @@ interface Folder {
     owner?: string | null;
 }
 
-interface DocumentItem { id:number; name:string; type:string; modified_at?:string|null; owner:string; show_url:string; viewer_url?:string|null; download_url?:string|null; edit_url?:string|null; update_url?:string|null; move_url?:string|null; delete_url?:string|null; }
+interface DocumentItem { id:number; route_key:string; name:string; type:string; modified_at?:string|null; owner:string; show_url:string; viewer_url?:string|null; download_url?:string|null; edit_url?:string|null; update_url?:string|null; move_url?:string|null; delete_url?:string|null; }
 
 interface Organization {
     id: number;
@@ -30,13 +31,13 @@ interface Organization {
 
 interface Props {
     currentFolder: Folder | null;
-    breadcrumbs: { id: number; name: string }[];
+    breadcrumbs: { id: number; route_key: string; name: string }[];
     folders: { data: Folder[]; current_page: number; last_page: number; prev_page_url: string | null; next_page_url: string | null };
     documents: DocumentItem[];
     filters: { search: string; sort?: string; order?: 'asc' | 'desc'; per_page?: number };
     canCreateRoot: boolean;
     organizations: Organization[];
-    uploadFolders: { id: number; name: string; path: string; depth: number; group_label: string }[];
+    uploadFolders: { id: number; route_key: string; name: string; path: string; depth: number; group_label: string }[];
 }
 
 const formatDate = (value?: string | null) =>
@@ -109,9 +110,11 @@ export default function Manage({
 
     const submitUpload = (event: FormEvent) => {
         event.preventDefault();
-        const destinationId = canChooseUploadDestination ? uploadFolderId : currentFolder?.id;
-        if (!destinationId) return;
-        uploadForm.post(route('documents.upload', destinationId), { preserveScroll: true, forceFormData: true, onSuccess: () => { uploadForm.reset(); setUploadFolderId(''); setUploadOpen(false); } });
+        const destinationKey = canChooseUploadDestination
+            ? uploadFolders.find((folder) => String(folder.id) === uploadFolderId)?.route_key
+            : currentFolder?.route_key;
+        if (!destinationKey) return;
+        uploadForm.post(route('documents.upload', destinationKey), { preserveScroll: true, forceFormData: true, onSuccess: () => { uploadForm.reset(); setUploadFolderId(''); setUploadOpen(false); } });
     };
 
     const submit = (event: FormEvent) => {
@@ -128,7 +131,7 @@ export default function Manage({
             return;
         }
 
-        form.post(route('documents.folders.store', currentFolder.id), {
+        form.post(route('documents.folders.store', currentFolder.route_key), {
             preserveScroll: true,
             onSuccess: () => {
                 form.reset();
@@ -192,7 +195,7 @@ export default function Manage({
     };
 
     const updateTable = (changes: Record<string, string | number>) => {
-        router.get(route('documents.manage', currentFolder?.id), { ...filters, ...changes }, { preserveState: true, preserveScroll: true, replace: true });
+        router.get(route('documents.manage', currentFolder?.route_key), { ...filters, ...changes }, { preserveState: true, preserveScroll: true, replace: true });
     };
 
     return (
@@ -232,7 +235,7 @@ export default function Manage({
                     {breadcrumbs.map((item) => (
                         <span key={item.id} className="flex items-center gap-1">
                             <span aria-hidden="true" className="text-stone-400">›</span>
-                            <Link href={route('documents.manage', item.id)} className="rounded-lg px-2 py-1 font-medium text-stone-700 transition hover:bg-stone-100">{item.name}</Link>
+                            <Link href={route('documents.manage', item.route_key)} className="rounded-lg px-2 py-1 font-medium text-stone-700 transition hover:bg-stone-100">{item.name}</Link>
                         </span>
                     ))}
                 </nav>
@@ -454,11 +457,11 @@ export default function Manage({
 
 function FolderRow({ folder, selected, onSelected }: { folder: Folder; selected: boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <tr className={'group transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><Link href={route('documents.manage', folder.id)} className="flex min-w-[220px] items-center gap-3 font-medium text-[#073d2f] hover:text-arms-green"><span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></span><span className="truncate">{folder.name}</span></Link></td><td className="px-5 py-4 text-sm text-stone-600">Folder</td><td className="hidden px-5 py-4 text-sm text-stone-500 md:table-cell">{formatDate(folder.updated_at)}</td><td className="hidden px-5 py-4 text-sm text-stone-500 lg:table-cell">{folder.owner ?? '—'}</td><td className="px-4 py-4 text-center"><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
+    return <tr className={'group transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><Link href={route('documents.manage', folder.route_key)} className="flex min-w-[220px] items-center gap-3 font-medium text-[#073d2f] hover:text-arms-green"><span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></span><span className="truncate">{folder.name}</span></Link></td><td className="px-5 py-4 text-sm text-stone-600">Folder</td><td className="hidden px-5 py-4 text-sm text-stone-500 md:table-cell">{formatDate(folder.updated_at)}</td><td className="hidden px-5 py-4 text-sm text-stone-500 lg:table-cell">{folder.owner ?? '—'}</td><td className="px-4 py-4 text-center"><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
 }
 function FolderCard({ folder, selected, onSelected }: { folder: Folder; selected: boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.id)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></Link><Link href={route('documents.manage', folder.id)} className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
+    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.route_key)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></Link><Link href={route('documents.manage', folder.route_key)} className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
 }
 function DocumentThumbnail({ document }: { document: DocumentItem }) {
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
@@ -605,7 +608,18 @@ function DocumentActions({ document, destinations, onOpen, open, onOpenChange }:
     const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
-        setMenuPosition({ top: rect.bottom + 6, left: Math.max(12, rect.right - 208) });
+        const menuWidth = 208;
+        const menuHeight = 230;
+        const viewportPadding = 12;
+        const availableBelow = window.innerHeight - rect.bottom;
+        const top = availableBelow >= menuHeight + viewportPadding
+            ? rect.bottom + 6
+            : Math.max(viewportPadding, rect.top - menuHeight - 6);
+        const left = Math.min(
+            window.innerWidth - menuWidth - viewportPadding,
+            Math.max(viewportPadding, rect.right - menuWidth),
+        );
+        setMenuPosition({ top, left });
         onOpenChange(!open);
     };
     const submitRename = (event: FormEvent) => {
@@ -644,7 +658,18 @@ function FolderActions({ folder, open, onOpenChange }: { folder: Folder; open:bo
     const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault(); event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
-        setMenuPosition({ top: rect.bottom + 6, left: Math.max(12, rect.right - 208) });
+        const menuWidth = 208;
+        const menuHeight = 150;
+        const viewportPadding = 12;
+        const availableBelow = window.innerHeight - rect.bottom;
+        const top = availableBelow >= menuHeight + viewportPadding
+            ? rect.bottom + 6
+            : Math.max(viewportPadding, rect.top - menuHeight - 6);
+        const left = Math.min(
+            window.innerWidth - menuWidth - viewportPadding,
+            Math.max(viewportPadding, rect.right - menuWidth),
+        );
+        setMenuPosition({ top, left });
         onOpenChange(!open);
     };
     const submitRename = (event: FormEvent) => {
@@ -658,7 +683,7 @@ function FolderActions({ folder, open, onOpenChange }: { folder: Folder; open:bo
     };
     return <div className="inline-block text-left">
         <button type="button" onClick={toggle} aria-label={'Actions for folder ' + folder.name} className={'rounded-lg px-2 py-1 text-lg leading-none transition ' + (open ? 'bg-emerald-100 text-[#073d2f]' : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')}>⋮</button>
-        {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.id)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete</button>}</div>}
+        {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete</button>}</div>}
         {renameOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><form onSubmit={submitRename} className="w-full max-w-md rounded-2xl bg-white p-6 text-left shadow-2xl"><div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-xl text-arms-green">✎</div><h3 className="mt-4 text-center text-xl font-semibold text-[#073d2f]">Rename folder</h3><p className="mt-1 text-center text-sm text-stone-500">Spaces will automatically become underscores. Windows-invalid characters are not allowed.</p><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"/><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setRenameOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white">Rename</button></div></form></div>}
         {deleteOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">!</div><h3 className="mt-4 text-xl font-semibold text-[#073d2f]">Delete folder?</h3><p className="mt-2 text-sm text-stone-500">Delete <strong>{folder.name}</strong>? Only empty folders can be deleted.</p><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button type="button" onClick={remove} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Yes, delete</button></div></div></div>}
     </div>;

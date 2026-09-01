@@ -3,12 +3,8 @@ import {
     BarElement,
     CategoryScale,
     Chart as ChartJS,
-    Filler,
     Legend,
-    LineController,
     LinearScale,
-    LineElement,
-    PointElement,
     Tooltip,
     ChartData,
 } from 'chart.js';
@@ -18,12 +14,8 @@ ChartJS.register(
     BarController,
     BarElement,
     CategoryScale,
-    Filler,
     Legend,
-    LineController,
     LinearScale,
-    LineElement,
-    PointElement,
     Tooltip,
 );
 
@@ -50,37 +42,24 @@ export function DocumentActivityChart({
         );
     }
 
-    const data: ChartData<'bar' | 'line', number[], string> = {
+    const barColors = ['#c7c7c7', '#4caf63', '#f2ad25', '#2f8bea', '#7138cf', '#08613f'];
+    const data: ChartData<'bar', number[], string> = {
         labels: activity.map((point) => point.label),
         datasets: [
             {
-                type: 'bar' as const,
                 label: 'Uploads',
                 data: activity.map((point) => point.uploads),
-                backgroundColor: 'arms-green',
+                backgroundColor: activity.map((_, index) => barColors[index % barColors.length]),
                 borderRadius: 6,
-                maxBarThickness: 42,
-                yAxisID: 'y',
-            },
-            {
-                type: 'line' as const,
-                label: 'Cumulative total',
-                data: activity.map((point) => point.cumulative),
-                borderColor: '#0f6b4e',
-                backgroundColor: '#d4a936',
-                borderWidth: 2,
-                pointBackgroundColor: '#d4a936',
-                pointBorderColor: '',
-                pointRadius: 4,
-                tension: 0.3,
-                yAxisID: 'cumulative',
+                borderSkipped: false,
+                maxBarThickness: 52,
             },
         ],
     };
 
     return (
         <div className="h-64">
-            <Chart<'bar' | 'line'>
+            <Chart<'bar'>
                 type="bar"
                 data={data}
                 options={{
@@ -102,13 +81,6 @@ export function DocumentActivityChart({
                         },
                     },
                     scales: {
-                        cumulative: {
-                            beginAtZero: true,
-                            grid: {
-                                display: false,
-                            },
-                            position: 'right',
-                        },
                         x: {
                             grid: {
                                 display: false,
@@ -120,6 +92,9 @@ export function DocumentActivityChart({
                                 color: '#eeeae3',
                             },
                             position: 'left',
+                            ticks: {
+                                precision: 0,
+                            },
                         },
                     },
                 }}
@@ -131,7 +106,7 @@ export function DocumentActivityChart({
                     <tr>
                         <th>Month</th>
                         <th>Uploads</th>
-                        <th>Cumulative total</th>
+
                     </tr>
                 </thead>
                 <tbody>
@@ -139,7 +114,7 @@ export function DocumentActivityChart({
                         <tr key={point.label}>
                             <td>{point.label}</td>
                             <td>{point.uploads}</td>
-                            <td>{point.cumulative}</td>
+
                         </tr>
                     ))}
                 </tbody>

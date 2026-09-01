@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from 'react';
 
 type UserRow = {
     id: number;
+    route_key: string;
     username: string;
     name: string;
     position?: string | null;
@@ -109,24 +110,24 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
     };
     const submitEdit = (event:FormEvent) => {
         event.preventDefault(); if (!selectedUser) return;
-        editForm.patch(route('users.update', selectedUser.id), { preserveScroll:true, onSuccess:() => setEditOpen(false) });
+        editForm.patch(route('users.update', selectedUser.route_key), { preserveScroll:true, onSuccess:() => setEditOpen(false) });
     };
     const runConfirm = () => {
         if (!selectedUser || !confirmAction) return;
         const options = { preserveScroll:true, onSuccess:() => { setConfirmAction(null); setSelected([]); } };
-        if (confirmAction === 'logout') router.post(route('users.force-logout', selectedUser.id), {}, options);
-        if (confirmAction === 'block') router.patch(route('users.block', selectedUser.id), {}, options);
-        if (confirmAction === 'delete') router.delete(route('users.destroy', selectedUser.id), options);
+        if (confirmAction === 'logout') router.post(route('users.force-logout', selectedUser.route_key), {}, options);
+        if (confirmAction === 'block') router.patch(route('users.block', selectedUser.route_key), {}, options);
+        if (confirmAction === 'delete') router.delete(route('users.destroy', selectedUser.route_key), options);
     };
-    const submitViewer = (event:FormEvent) => { event.preventDefault(); if (!selectedUser) return; viewerForm.patch(route('users.viewer', selectedUser.id), { preserveScroll:true, onSuccess:() => setViewerOpen(false) }); };
-    const submitUploader = (event:FormEvent) => { event.preventDefault(); if (!selectedUser) return; uploaderForm.patch(route('users.uploader', selectedUser.id), { preserveScroll:true, onSuccess:() => setUploaderOpen(false) }); };
+    const submitViewer = (event:FormEvent) => { event.preventDefault(); if (!selectedUser) return; viewerForm.patch(route('users.viewer', selectedUser.route_key), { preserveScroll:true, onSuccess:() => setViewerOpen(false) }); };
+    const submitUploader = (event:FormEvent) => { event.preventDefault(); if (!selectedUser) return; uploaderForm.patch(route('users.uploader', selectedUser.route_key), { preserveScroll:true, onSuccess:() => setUploaderOpen(false) }); };
 
     const openAccessFor = async (user: UserRow | null) => {
         if (!user?.manageable) return;
         setSelected([user.id]);
         setAccessOpen(true); setAccessLoading(true);
         try {
-            const response = await fetch(route('users.access.data', user.id), { headers:{ Accept:'application/json' } });
+            const response = await fetch(route('users.access.data', user.route_key), { headers:{ Accept:'application/json' } });
             if (!response.ok) throw new Error('Unable to load access.');
             const payload = await response.json();
             setAccessFolders(payload.folders ?? []); setAccessSelected(payload.selected ?? []); setAccessDocuments(payload.documents ?? []); setAccessDocumentSelected(payload.selected_documents ?? []);
@@ -135,7 +136,7 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
     const openAccess = () => openAccessFor(selectedUser);
     const saveAccess = () => {
         if (!selectedUser) return;
-        router.patch(route('users.access.update', selectedUser.id), { folder_ids:accessSelected, document_ids:accessDocumentSelected }, { preserveScroll:true, onSuccess:() => setAccessOpen(false) });
+        router.patch(route('users.access.update', selectedUser.route_key), { folder_ids:accessSelected, document_ids:accessDocumentSelected }, { preserveScroll:true, onSuccess:() => setAccessOpen(false) });
     };
 
     const manageableSelected = selected.length === 1 && !!selectedUser?.manageable;
@@ -170,7 +171,7 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
                     <button disabled={!manageableSelected} onClick={() => setConfirmAction('block')} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold disabled:opacity-40">▣ {selectedUser?.status === 'Blocked' ? 'Unblock' : 'Block'}</button>
                     <button disabled={!manageableSelected} onClick={() => { viewerForm.setData('viewer_level', selectedUser?.role_slug === 'viewer' ? 1 : 2); setViewerOpen(true); }} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold disabled:opacity-40">◉ Viewer</button>
                     <button disabled={!manageableSelected} onClick={() => { uploaderForm.setData('allowed_upload', !!selectedUser?.allowed_upload); setUploaderOpen(true); }} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold disabled:opacity-40">⇧ Uploader</button>
-                    {manageableSelected && <a href={route('users.export', selectedUser!.id)} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold">⇩ Export</a>}
+                    {manageableSelected && <a href={route('users.export', selectedUser!.route_key)} className="rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm font-semibold">⇩ Export</a>}
                     <span className={`ml-auto rounded-full px-3 py-1.5 text-xs font-medium ${selected.length === 1 && !selectedUser?.manageable ? 'bg-amber-50 text-amber-700' : selected.length ? 'bg-emerald-50 text-arms-green' : 'bg-stone-100 text-stone-500'}`}>{selectionMessage}</span>
                 </div>
 
@@ -219,7 +220,7 @@ function UserActions({ user, onEdit, onAccess, onViewer, onUploader, onConfirm }
                 <button type="button" onClick={() => run(() => onUploader(user))} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50">⇧ Uploader permission</button>
                 {user.status === 'Online' && <button type="button" onClick={() => run(() => onConfirm(user,'logout'))} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50">⇥ Force logout</button>}
                 <button type="button" onClick={() => run(() => onConfirm(user,'block'))} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50">▣ {user.status === 'Blocked' ? 'Unblock user' : 'Block user'}</button>
-                <a href={route('users.export', user.id)} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 hover:bg-stone-50">⇩ Export access</a>
+                <a href={route('users.export', user.route_key)} onClick={() => setOpen(false)} className="block rounded-lg px-3 py-2.5 hover:bg-stone-50">⇩ Export access</a>
                 <button type="button" onClick={() => run(() => onConfirm(user,'delete'))} className="mt-1 block w-full border-t border-stone-100 px-3 py-2.5 text-left text-red-700 hover:bg-red-50">♜ Delete user</button>
             </> : <div className="px-3 py-3 text-xs leading-5 text-stone-500">This account is protected and cannot be managed by the current user.</div>}
         </div>}

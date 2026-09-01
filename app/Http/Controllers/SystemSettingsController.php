@@ -34,6 +34,7 @@ class SystemSettingsController extends Controller
             ->get()
             ->map(fn ($item) => [
                 'id' => $item->id,
+                'route_key' => $item->getRouteKey(),
                 'extension' => $item->extension,
                 'mime_types' => $item->mime_types ?? [],
                 'maximum_size_kb' => $item->maximum_size_kb,

@@ -6,6 +6,7 @@ import { FormEvent, useState } from 'react';
 
 interface Subsidiary {
     id: number;
+    route_key: string;
     name: string;
     status: string;
     dependency_counts: { departments: number; users: number; folders: number };
@@ -32,7 +33,7 @@ export default function Subsidiaries({ subsidiaries, filters }: PageProps) {
     const submit = (event: FormEvent) => {
         event.preventDefault();
         if (editing) {
-            form.patch(route('administration.subsidiaries.update', editing.id), { onSuccess: closeForm });
+            form.patch(route('administration.subsidiaries.update', editing.route_key), { onSuccess: closeForm });
             return;
         }
         form.post(route('administration.subsidiaries.store'), { onSuccess: closeForm });
@@ -67,7 +68,7 @@ export default function Subsidiaries({ subsidiaries, filters }: PageProps) {
                 </div>
             </section>
             <Modal show={showForm} onClose={closeForm} maxWidth="md"><form onSubmit={submit} className="p-6"><h2 className="font-serif text-2xl text-[#073d2f]">{editing ? 'Edit Subsidiary' : 'New Subsidiary'}</h2><label className="mt-5 block text-sm font-semibold">Subsidiary name <span className="text-red-700">*</span><input value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} className="mt-2 block w-full rounded-xl border-stone-300 focus:border-arms-green focus:ring-arms-green" autoFocus /></label><InputError message={form.errors.name} className="mt-2" /><div className="mt-7 flex justify-end gap-3"><button type="button" onClick={closeForm} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold">Cancel</button><button disabled={form.processing} className="rounded-xl bg-arms-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{form.processing ? 'Saving…' : editing ? 'Update' : 'Save'}</button></div></form></Modal>
-            <Modal show={Boolean(deleting)} onClose={() => setDeleting(null)} maxWidth="md"><div className="p-6"><h2 className="font-serif text-2xl text-[#073d2f]">Delete subsidiary</h2><p className="mt-3 text-stone-600">Delete <strong>{deleting?.name}</strong>? This action is available only when it has no related records.</p><dl className="mt-5 grid grid-cols-3 gap-3 text-center text-sm"><div className="rounded-lg bg-stone-50 p-3"><dt>Departments</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.departments}</dd></div><div className="rounded-lg bg-stone-50 p-3"><dt>Users</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.users}</dd></div><div className="rounded-lg bg-stone-50 p-3"><dt>Folders</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.folders}</dd></div></dl><div className="mt-7 flex justify-end gap-3"><button onClick={() => setDeleting(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold">Cancel</button><button disabled={!deleting || Object.values(deleting.dependency_counts).some(Boolean)} onClick={() => deleting && router.delete(route('administration.subsidiaries.destroy', deleting.id), { onSuccess: () => setDeleting(null) })} className="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Delete</button></div></div></Modal>
+            <Modal show={Boolean(deleting)} onClose={() => setDeleting(null)} maxWidth="md"><div className="p-6"><h2 className="font-serif text-2xl text-[#073d2f]">Delete subsidiary</h2><p className="mt-3 text-stone-600">Delete <strong>{deleting?.name}</strong>? This action is available only when it has no related records.</p><dl className="mt-5 grid grid-cols-3 gap-3 text-center text-sm"><div className="rounded-lg bg-stone-50 p-3"><dt>Departments</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.departments}</dd></div><div className="rounded-lg bg-stone-50 p-3"><dt>Users</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.users}</dd></div><div className="rounded-lg bg-stone-50 p-3"><dt>Folders</dt><dd className="mt-1 font-semibold">{deleting?.dependency_counts.folders}</dd></div></dl><div className="mt-7 flex justify-end gap-3"><button onClick={() => setDeleting(null)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold">Cancel</button><button disabled={!deleting || Object.values(deleting.dependency_counts).some(Boolean)} onClick={() => deleting && router.delete(route('administration.subsidiaries.destroy', deleting.route_key), { onSuccess: () => setDeleting(null) })} className="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Delete</button></div></div></Modal>
         </AuthenticatedLayout>
     );
 }
