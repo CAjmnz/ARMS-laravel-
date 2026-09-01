@@ -9,6 +9,7 @@ export type ArmsIconName =
     | 'folder'
     | 'gear'
     | 'menu'
+    | 'search'
     | 'shield'
     | 'upload'
     | 'users'
@@ -46,6 +47,12 @@ const paths: Record<ArmsIconName, JSX.Element> = {
         </>
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    search: (
+        <>
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-4-4" />
+        </>
+    ),
     shield: (
         <>
             <path d="M12 2 20 5v6c0 5.5-3.2 9.2-8 11-4.8-1.8-8-5.5-8-11V5z" />

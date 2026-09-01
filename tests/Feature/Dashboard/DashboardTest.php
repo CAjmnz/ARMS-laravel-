@@ -60,27 +60,13 @@ class DashboardTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Dashboard')
-                ->where('summary.pending', 1)
                 ->where('summary.documents', 1)
+                ->where('summary.folders', 2)
                 ->where('summary.users', 1)
-                ->where('documentStatus.published', 1)
-                ->where('documentStatus.unpublished', 1)
-                ->where('documentStatus.total', 2)
-                ->where('documentStatus.publishedPercentage', 50)
-                ->has('activity', 6));
-    }
-
-    public function test_dashboard_returns_zero_safe_publication_percentages(): void
-    {
-        $user = User::factory()->create();
-
-        $this->actingAs($user)
-            ->get('/dashboard')
-            ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page
-                ->where('documentStatus.total', 0)
-                ->where('documentStatus.publishedPercentage', 0)
-                ->where('documentStatus.unpublishedPercentage', 0));
+                ->has('activity', 6)
+                ->has('recentActivities')
+                ->has('topCategories')
+                ->has('memberRoles'));
     }
 
     public function test_activity_contains_six_months_in_chronological_order(): void

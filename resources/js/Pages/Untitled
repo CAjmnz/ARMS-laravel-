@@ -1,0 +1,25 @@
+{
+  "host": "127.0.0.1",
+  "port": 7676,
+  "allowedRoots": [
+    "C:\\laragon\\www\\arms-laravel"
+  ],
+  "publicBaseUrl": "https://oaf-palace-aviator.ngrok-free.dev",
+  "subagents": {
+    "enabled": true,
+    "providers": [
+      {
+        "id": "claude",
+        "enabled": true
+      },
+      {
+        "id": "opencode",
+        "enabled": true
+      },
+      {
+        "id": "pi",
+        "enabled": true
+      }
+    ]
+  }
+}

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\ActivityLog;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\User;
@@ -16,21 +17,21 @@ class DashboardStatisticsService
     public function for(User $user): array
     {
         $now = CarbonImmutable::now();
-        $status = $this->documentStatus();
 
         return [
             'greeting' => $this->greeting($now),
             'lastLoginAt' => $user->last_login_at?->toIso8601String(),
             'summary' => [
-                'pending' => $status['unpublished'],
                 'documents' => Document::query()->count(),
+                'folders' => Folder::query()->count(),
                 'users' => User::query()->count(),
                 'online' => $this->activeSessionCount($now),
             ],
-            'documentStatus' => $status,
             'activity' => $this->activity($now),
-            'quickFolders' => $this->quickFolders($user),
-            'recentDocuments' => $this->recentDocuments($user),
+            'recentActivities' => $this->recentActivities(),
+            'topCategories' => $this->topCategories(),
+            'storageBytes' => (int) DB::table('document_versions')->sum('size_bytes'),
+            'memberRoles' => $this->memberRoles(),
             'account' => [
                 'name' => $user->name,
                 'employeeId' => $user->employee_id,
@@ -39,28 +40,6 @@ class DashboardStatisticsService
                 'department' => $user->department?->name,
                 'lastLoginAt' => $user->last_login_at?->toIso8601String(),
             ],
-        ];
-    }
-
-    /**
-     * @return array{published: int, unpublished: int, total: int, publishedPercentage: float, unpublishedPercentage: float}
-     */
-    private function documentStatus(): array
-    {
-        $published = Folder::query()->where('is_published', true)->count();
-        $unpublished = Folder::query()->where('is_published', false)->count();
-        $total = $published + $unpublished;
-
-        return [
-            'published' => $published,
-            'unpublished' => $unpublished,
-            'total' => $total,
-            'publishedPercentage' => $total === 0
-                ? 0
-                : round(($published / $total) * 100, 1),
-            'unpublishedPercentage' => $total === 0
-                ? 0
-                : round(($unpublished / $total) * 100, 1),
         ];
     }
 
@@ -103,81 +82,63 @@ class DashboardStatisticsService
             ->all();
     }
 
-    /**
-     * @return array<int, array{id:int,name:string,files:int,url:string}>
-     */
-    private function quickFolders(User $user): array
+    /** @return array<int, array{id:int,actor:string,description:string,event:string,occurredAt:?string}> */
+    private function recentActivities(): array
     {
-        return Folder::query()
-            ->whereNull('parent_id')
-            ->withCount('documents')
-            ->latest('updated_at')
+        return ActivityLog::query()
+            ->leftJoin('users', 'users.id', '=', 'activity_logs.user_id')
+            ->select([
+                'activity_logs.id',
+                'activity_logs.event',
+                'activity_logs.description',
+                'activity_logs.created_at',
+                'users.name as actor_name',
+                'users.employee_id as actor_employee_id',
+            ])
+            ->latest('activity_logs.created_at')
             ->limit(6)
             ->get()
-            ->filter(fn (Folder $folder) => $user->can('view', $folder))
-            ->take(4)
+            ->map(fn ($log) => [
+                'id' => (int) $log->id,
+                'actor' => $log->actor_name ?: ($log->actor_employee_id ?: 'System'),
+                'description' => $log->description ?: str_replace('.', ' ', ucfirst((string) $log->event)),
+                'event' => (string) $log->event,
+                'occurredAt' => $log->created_at ? CarbonImmutable::parse($log->created_at)->toIso8601String() : null,
+            ])
+            ->all();
+    }
+
+    /** @return array<int, array{id:int,name:string,count:int}> */
+    private function topCategories(): array
+    {
+        return Folder::query()
+            ->withCount('documents')
+            ->orderByDesc('documents_count')
+            ->limit(5)
+            ->get(['id', 'name'])
             ->map(fn (Folder $folder) => [
                 'id' => $folder->id,
                 'name' => $folder->name,
-                'files' => $folder->documents_count,
-                'url' => route('documents.manage', $folder),
+                'count' => (int) $folder->documents_count,
             ])
-            ->values()
             ->all();
     }
 
-    /**
-     * @return array<int, array{id:int,name:string,type:string,folder:string,modifiedAt:?string,access:string,url:string,viewerUrl:?string}>
-     */
-    private function recentDocuments(User $user): array
+    /** @return array<int, array{name:string,count:int}> */
+    private function memberRoles(): array
     {
-        return Document::query()
-            ->with([
-                'folder:id,parent_id,name',
-                'latestVersion' => fn ($query) => $query->select([
-                    'document_versions.id',
-                    'document_versions.document_id',
-                    'document_versions.extension',
-                    'document_versions.scan_status',
-                ]),
-            ])
-            ->latest('updated_at')
-            ->limit(30)
+        return DB::table('roles')
+            ->leftJoin('role_user', 'roles.id', '=', 'role_user.role_id')
+            ->select('roles.name')
+            ->selectRaw('COUNT(role_user.user_id) as aggregate')
+            ->groupBy('roles.id', 'roles.name')
+            ->orderBy('roles.id')
             ->get()
-            ->filter(fn (Document $document) => $user->can('view', $document))
-            ->take(6)
-            ->map(function (Document $document) use ($user): array {
-                return [
-                    'id' => $document->id,
-                    'name' => $document->title.'.'.strtolower($document->latestVersion?->extension ?? ''),
-                    'type' => strtoupper($document->latestVersion?->extension ?? 'FILE'),
-                    'folder' => $this->folderPath($document->folder),
-                    'modifiedAt' => $document->updated_at?->toIso8601String(),
-                    'access' => $user->can('download', $document) ? 'View & download' : 'View only',
-                    'url' => route('documents.show', $document),
-                    'viewerUrl' => $document->latestVersion?->scan_status === 'ready'
-                        ? route('documents.viewer', $document)
-                        : null,
-                ];
-            })
-            ->values()
+            ->map(fn ($role) => [
+                'name' => (string) $role->name,
+                'count' => (int) $role->aggregate,
+            ])
             ->all();
-    }
-
-    private function folderPath(?Folder $folder): string
-    {
-        if (! $folder) {
-            return 'Documents';
-        }
-
-        $parts = [];
-        $cursor = $folder;
-        while ($cursor) {
-            array_unshift($parts, $cursor->name);
-            $cursor = $cursor->parent()->first(['id', 'parent_id', 'name']);
-        }
-
-        return implode(' / ', $parts);
     }
 
     private function activeSessionCount(CarbonImmutable $now): int
