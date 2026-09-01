@@ -66,7 +66,7 @@ export default function Edit({
 
             <section className="mx-auto max-w-[1550px] px-5 py-7 sm:px-8 lg:px-10">
                 <div className="mb-5 flex items-center gap-2 text-sm text-stone-500">
-                    <button type="button" onClick={() => router.visit(route('dashboard'))} className="font-medium text-[#08613f] hover:underline">
+                    <button type="button" onClick={() => router.visit(route('dashboard'))} className="font-medium text-arms-green hover:underline">
                         A.R.M.S
                     </button>
                     <span>›</span>
@@ -116,7 +116,7 @@ export default function Edit({
                                     <input
                                         value={form.data.name}
                                         onChange={(e) => form.setData('name', e.target.value)}
-                                        className="h-12 w-full rounded-xl border-stone-300 bg-white px-4 text-sm shadow-sm focus:border-[#0b7652] focus:ring-[#0b7652]"
+                                        className="h-12 w-full rounded-xl border-stone-300 bg-white px-4 text-sm shadow-sm focus:border-arms-green-light focus:ring-arms-green-light"
                                     />
                                 </Field>
                                 <Field label="Email Address" error={form.errors.email}>
@@ -124,7 +124,7 @@ export default function Edit({
                                         type="email"
                                         value={form.data.email}
                                         onChange={(e) => form.setData('email', e.target.value)}
-                                        className="h-12 w-full rounded-xl border-stone-300 bg-white px-4 text-sm shadow-sm focus:border-[#0b7652] focus:ring-[#0b7652]"
+                                        className="h-12 w-full rounded-xl border-stone-300 bg-white px-4 text-sm shadow-sm focus:border-arms-green-light focus:ring-arms-green-light"
                                     />
                                 </Field>
                                 <ReadOnlyField label="Position / Designation" value={profile.position ?? '—'} />

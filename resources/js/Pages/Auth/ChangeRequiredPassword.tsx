@@ -53,7 +53,7 @@ export default function ChangeRequiredPassword() {
                                 }
                                 value={data[field]}
                                 onChange={(e) => setData(field, e.target.value)}
-                                className="mt-2 h-12 w-full rounded-lg border border-stone-300 px-4 focus:border-[#08613f] focus:ring-[#08613f]"
+                                className="mt-2 h-12 w-full rounded-lg border border-stone-300 px-4 focus:border-arms-green focus:ring-arms-green"
                             />
                             <InputError
                                 message={errors[field]}
@@ -63,7 +63,7 @@ export default function ChangeRequiredPassword() {
                     ))}
                     <button
                         disabled={processing}
-                        className="h-12 w-full rounded-lg bg-[#08613f] font-semibold text-white disabled:opacity-60"
+                        className="h-12 w-full rounded-lg bg-arms-green font-semibold text-white disabled:opacity-60"
                     >
                         {processing
                             ? "Saving…"

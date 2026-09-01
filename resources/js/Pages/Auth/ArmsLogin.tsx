@@ -136,13 +136,13 @@ export default function ArmsLogin({ status }: { status?: string }) {
                                 onChange={(e) =>
                                     setData("remember", e.target.checked)
                                 }
-                                className="rounded text-[#08613f]"
+                                className="rounded text-arms-green"
                             />
                             Remember me
                         </label>
                         <button
                             disabled={processing}
-                            className="mt-6 h-14 w-full rounded-lg bg-[#08613f] font-semibold text-white hover:bg-[#064f34] disabled:opacity-60"
+                            className="mt-6 h-14 w-full rounded-lg bg-arms-green font-semibold text-white hover:bg-[#064f34] disabled:opacity-60"
                         >
                             {processing ? "Signing in…" : "Sign In"}
                         </button>

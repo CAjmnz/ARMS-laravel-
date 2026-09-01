@@ -64,41 +64,23 @@ export default function AuthenticatedLayout({
         }
 
         if (auth.roles.includes('super-administrator')) {
-            items.push(
-                {
-                    active:
-                        route().current('administration.subsidiaries.*') ??
-                        false,
-                    href: route('administration.subsidiaries.index'),
-                    icon: 'building',
-                    label: 'Subsidiaries',
-                },
-                {
-                    active:
-                        route().current('administration.departments.*') ??
-                        false,
-                    href: route('administration.departments.index'),
-                    icon: 'building',
-                    label: 'Departments',
-                },
-            );
+            items.push({
+                active:
+                    (route().current('administration.subsidiaries.*') ?? false) ||
+                    (route().current('administration.departments.*') ?? false),
+                href: route('administration.subsidiaries.index'),
+                icon: 'building',
+                label: 'Organization',
+            });
         }
 
         if (auth.permissions.includes('users.manage')) {
-            items.push(
-                {
-                    active: route().current('users.*') ?? false,
-                    href: route('users.index'),
-                    icon: 'users',
-                    label: 'Users',
-                },
-                {
-                    active: route().current('roles.*') ?? false,
-                    href: route('roles.index'),
-                    icon: 'users',
-                    label: 'Roles & Permissions',
-                },
-            );
+            items.push({
+                active: route().current('users.*') ?? false,
+                href: route('users.index'),
+                icon: 'users',
+                label: 'Users',
+            });
         }
 
         if (auth.permissions.includes('system-settings.manage')) {
@@ -110,18 +92,11 @@ export default function AuthenticatedLayout({
             });
         }
 
-        items.push({
-            active: route().current('profile.*') ?? false,
-            href: route('profile.edit'),
-            icon: 'gear',
-            label: 'Profile',
-        });
-
         return items;
     }, [auth.permissions, auth.roles]);
 
     useEffect(() => {
-        const interval = window.setInterval(() => setNow(new Date()), 60_000);
+        const interval = window.setInterval(() => setNow(new Date()), 1_000);
 
         return () => window.clearInterval(interval);
     }, []);
@@ -166,7 +141,7 @@ export default function AuthenticatedLayout({
     }, [sidebarOpen]);
 
     return (
-        <div className="min-h-screen bg-[#fafaf8] text-[#102d25]">
+        <div className="min-h-screen bg-[#fafaf8] text-arms-dark">
             <button
                 type="button"
                 aria-label="Open navigation"
@@ -220,7 +195,7 @@ export default function AuthenticatedLayout({
                     </button>
                 </div>
 
-                <button type="button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="absolute -right-4 top-24 hidden h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-[#08613f] shadow-lg transition hover:bg-emerald-50 lg:flex">
+                <button type="button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'} className="absolute -right-4 top-24 hidden h-9 w-9 items-center justify-center rounded-full border border-emerald-200 bg-white text-arms-green shadow-lg transition hover:bg-emerald-50 hover:text-arms-dark lg:flex">
                     <ArmsIcon name="chevron" className={`h-4 w-4 transition-transform ${sidebarCollapsed ? '' : 'rotate-180'}`} />
                 </button>
 
@@ -292,6 +267,7 @@ export default function AuthenticatedLayout({
                                         {now.toLocaleTimeString([], {
                                             hour: '2-digit',
                                             minute: '2-digit',
+                                            second: '2-digit',
                                         })}
                                     </p>
                                     <p className="text-xs text-stone-500">

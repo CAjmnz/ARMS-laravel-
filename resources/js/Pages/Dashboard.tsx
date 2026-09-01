@@ -5,7 +5,11 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, router, usePage } from '@inertiajs/react';
 import { FormEvent, useMemo, useState } from 'react';
 
-interface ActivityPoint { cumulative:number; label:string; uploads:number }
+interface ActivityPoint {
+    cumulative: number;
+    label: string;
+    uploads: number;
+}
 interface AccountDetails { department:string|null; employeeId:string; lastLoginAt:string|null; name:string; position:string|null; subsidiary:string|null }
 interface DashboardProps { account:AccountDetails; activity:ActivityPoint[]; greeting:string; lastLoginAt:string|null; summary:DashboardSummary; recentActivities:RecentActivityItem[]; topCategories:CategoryItem[]; storageBytes:number; memberRoles:MemberRoleItem[] }
 
@@ -23,7 +27,14 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
     const [search,setSearch] = useState('');
     const quickActions = useMemo<QuickActionItem[]>(() => {
         const actions:QuickActionItem[] = [{label:'Document Management',description:'Browse records',icon:'document',href:route('documents.manage')}];
-        if (auth.permissions.includes('documents.upload')) actions.push({label:'Upload Document',description:'Choose a destination',icon:'document',href:route('documents.manage')});
+        if (auth.permissions.includes('documents.upload')) {
+    actions.push({
+        label: 'Upload Document',
+        description: 'Choose a destination',
+        icon: 'document',
+        href: route('documents.manage'),
+    });
+}
         if (auth.permissions.includes('folders.manage')) actions.push({label:'Create Folder',description:'Build record structure',icon:'folder',href:route('documents.manage')});
         if (auth.permissions.includes('users.manage')) actions.push({label:'Manage Users',description:'Accounts and access',icon:'users',href:route('users.index')});
         if (auth.permissions.includes('system-settings.manage')) actions.push({label:'System Settings',description:'Configure ARMS',icon:'gear',href:route('system.index')});
@@ -41,8 +52,8 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
         <main className="mx-auto max-w-[1680px] space-y-5 px-5 py-6 sm:px-8 lg:px-10">
             <section className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0b7652]">ARMS Dashboard</p>
-                    <h1 className="mt-1 text-2xl font-bold tracking-tight text-[#102d25] sm:text-3xl">Welcome back, {account.name || 'Administrator'}!</h1>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-arms-green-light">ARMS Dashboard</p>
+                    <h1 className="mt-1 text-2xl font-bold tracking-tight text-arms-dark sm:text-3xl">Welcome back, {account.name || 'Administrator'}!</h1>
                     <p className="mt-1 text-sm text-stone-500">{greeting}. Here&apos;s what&apos;s happening with your records today.</p>
                 </div>
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -50,7 +61,7 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
                         <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-stone-400"><ArmsIcon name="search" className="h-4 w-4" /></span>
                         <input value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Search documents, folders..." className="h-11 w-full rounded-xl border border-stone-200 bg-white pl-10 pr-4 text-sm shadow-sm outline-none transition focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
                     </form>
-                    <div className="flex h-11 items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 text-sm text-stone-600 shadow-sm"><ArmsIcon name="clock" className="h-4 w-4 text-[#08613f]" /><span>{currentDateLabel()}</span></div>
+                    <div className="flex h-11 items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 text-sm text-stone-600 shadow-sm"><ArmsIcon name="clock" className="h-4 w-4 text-[]" /><span>{currentDateLabel()}</span></div>
                 </div>
             </section>
 

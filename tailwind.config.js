@@ -12,8 +12,13 @@ export default {
 
     theme: {
         extend: {
-            fontFamily: {
-                sans: ['Figtree', ...defaultTheme.fontFamily.sans],
+            colors: {
+                arms: {
+                    green: '#08613f',
+                    'green-light': '#0b7652',
+                    dark: '#102d25',
+                    text: '#173d32',
+                },
             },
         },
     },

@@ -39,7 +39,7 @@ export function DashboardPanel({ children, title, action }: { children: ReactNod
     return (
         <section className="rounded-2xl border border-stone-200 bg-white shadow-sm">
             <header className="flex items-center justify-between gap-3 border-b border-stone-100 px-5 py-4 sm:px-6">
-                <h2 className="text-base font-semibold text-[#102d25]">{title}</h2>
+                <h2 className="text-base font-semibold text-arms-dark">{title}</h2>
                 {action}
             </header>
             <div className="p-5 sm:p-6">{children}</div>
@@ -51,7 +51,7 @@ export function DashboardStatCard({ icon, label, value, description }: { icon: A
     return (
         <article className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-4">
-                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-emerald-50 text-[#08613f]">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-emerald-50 text-[]">
                     <ArmsIcon name={icon} className="h-5 w-5" />
                 </span>
                 <div className="min-w-0">
@@ -73,7 +73,7 @@ export function RecentActivities({ items, formatDate }: { items: RecentActivityI
         <div className="divide-y divide-stone-100">
             {items.map((item) => (
                 <div key={item.id} className="flex gap-3 py-3 first:pt-0 last:pb-0">
-                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[#08613f]">
+                    <span className="mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-[]">
                         <ArmsIcon name={item.event.includes('auth') ? 'users' : item.event.includes('folder') ? 'folder' : 'document'} className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
@@ -92,7 +92,7 @@ export function QuickAccess({ actions }: { actions: QuickActionItem[] }) {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
             {actions.map((action) => (
                 <Link key={action.label} href={action.href} className="group rounded-xl border border-stone-200 bg-white px-4 py-5 text-center transition hover:border-emerald-300 hover:bg-emerald-50/40 hover:shadow-sm">
-                    <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-[#08613f] transition group-hover:bg-white">
+                    <span className="mx-auto grid h-10 w-10 place-items-center rounded-xl bg-emerald-50 text-[] transition group-hover:bg-white">
                         <ArmsIcon name={action.icon} className="h-5 w-5" />
                     </span>
                     <span className="mt-3 block text-sm font-semibold text-[#173d32]">{action.label}</span>
@@ -119,7 +119,7 @@ export function CategoryOverview({ categories }: { categories: CategoryItem[] })
                         <span className="shrink-0 font-semibold text-stone-600">{item.count.toLocaleString()}</span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-stone-100">
-                        <div className="h-full rounded-full bg-[#0b7652]" style={{ width: `${Math.max(6, (item.count / max) * 100)}%` }} />
+                        <div className="h-full rounded-full bg-arms-green-light" style={{ width: `${Math.max(6, (item.count / max) * 100)}%` }} />
                     </div>
                 </div>
             ))}
@@ -139,7 +139,7 @@ export function StorageOverview({ bytes }: { bytes: number }) {
     return (
         <div className="flex min-h-36 items-center justify-center">
             <div className="text-center">
-                <span className="mx-auto grid h-16 w-16 place-items-center rounded-full border-[8px] border-emerald-100 bg-white text-[#08613f]">
+                <span className="mx-auto grid h-16 w-16 place-items-center rounded-full border-[8px] border-emerald-100 bg-white text-[]">
                     <ArmsIcon name="document" className="h-6 w-6" />
                 </span>
                 <p className="mt-4 text-2xl font-bold text-[#073d2f]">{value.toFixed(value >= 10 || unit === 'B' ? 0 : 2)} {unit}</p>

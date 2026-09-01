@@ -1,5 +1,5 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 
 type FixedRole = {
     id: number;
@@ -31,18 +31,21 @@ const descriptions: Record<string, string> = {
 
 export default function Index({ roles }: { roles: FixedRole[] }) {
     return (
-        <AuthenticatedLayout
-            header={
-                <div>
-                    <p className="text-sm font-medium text-[#b78717]">Administration</p>
-                    <h1 className="mt-1 text-2xl font-bold text-[#033b2d]">Roles & Permissions</h1>
-                    <p className="mt-1 text-sm text-gray-600">Fixed permissions inherited from the CI3 Records Management System.</p>
-                </div>
-            }
-        >
+        <AuthenticatedLayout breadcrumb="A.R.M.S › System Settings" title="Roles & Permissions">
             <Head title="Roles & Permissions" />
             <div className="bg-[#fafaf8] py-8">
                 <div className="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
+                    <div className="flex flex-wrap gap-2 rounded-2xl border border-stone-200 bg-white p-2 shadow-sm">
+                        <Link href={route('system.index', { tab: 'general' })} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-50">Global Configuration</Link>
+                        <Link href={route('system.index', { tab: 'file-types' })} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-50">File Type Setting</Link>
+                        <Link href={route('system.index', { tab: 'logs' })} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-50">Access Logs</Link>
+                        <Link href={route('system.index', { tab: 'backup' })} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-50">Backup</Link>
+                        <Link href={route('roles.index')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-arms-green">Roles & Permissions</Link>
+                    </div>
+                    <div>
+                        <h1 className="text-2xl font-bold text-[#033b2d]">Roles & Permissions</h1>
+                        <p className="mt-1 text-sm text-gray-600">Fixed permissions inherited from the CI3 Records Management System.</p>
+                    </div>
                     <div className="rounded-xl border border-[#e2d4ae] bg-[#fffaf0] p-4 text-sm text-[#6d5114]">
                         <strong>Fixed legacy behavior:</strong> exactly four roles are available. Roles and permissions cannot be created, deleted, or customized.
                     </div>

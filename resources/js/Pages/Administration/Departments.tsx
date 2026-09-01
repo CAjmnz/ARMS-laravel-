@@ -1,7 +1,7 @@
 import InputError from '@/Components/InputError';
 import Modal from '@/Components/Modal';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, router, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm } from '@inertiajs/react';
 import { FormEvent, useState } from 'react';
 
 interface Department {
@@ -129,6 +129,10 @@ export default function Departments({
             <Head title="Departments" />
 
             <section className="mx-auto max-w-7xl px-5 py-8 sm:px-8 lg:px-10">
+                <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-stone-200 bg-white p-2 shadow-sm">
+                    <Link href={route('administration.subsidiaries.index')} className="rounded-xl px-4 py-2.5 text-sm font-semibold text-stone-600 transition hover:bg-stone-50">Subsidiaries</Link>
+                    <Link href={route('administration.departments.index')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-arms-green">Departments</Link>
+                </div>
                 <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
                     <p className="text-sm text-stone-600">
                         Manage departments and their subsidiary assignments.
@@ -137,7 +141,7 @@ export default function Departments({
                     <button
                         type="button"
                         onClick={openCreateForm}
-                        className="rounded-xl bg-[#08613f] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#033b2d]"
+                        className="rounded-xl bg-arms-green px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#033b2d]"
                     >
                         New Department
                     </button>
@@ -154,7 +158,7 @@ export default function Departments({
                                 })
                             }
                             placeholder="Search departments or subsidiaries"
-                            className="w-full rounded-xl border-stone-300 text-sm focus:border-[#08613f] focus:ring-[#08613f] sm:max-w-sm"
+                            className="w-full rounded-xl border-stone-300 text-sm focus:border-arms-green focus:ring-arms-green sm:max-w-sm"
                         />
 
                         <select
@@ -165,7 +169,7 @@ export default function Departments({
                                     per_page: Number(event.target.value),
                                 })
                             }
-                            className="rounded-xl border-stone-300 text-sm focus:border-[#08613f] focus:ring-[#08613f]"
+                            className="rounded-xl border-stone-300 text-sm focus:border-arms-green focus:ring-arms-green"
                         >
                             <option value="10">10 per page</option>
                             <option value="25">25 per page</option>
@@ -226,7 +230,7 @@ export default function Departments({
                                             {department.subsidiary_name}
                                         </td>
                                         <td className="px-3 py-4">
-                                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-[#08613f]">
+                                            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-arms-green">
                                                 {department.status}
                                             </span>
                                         </td>
@@ -242,7 +246,7 @@ export default function Departments({
                                                 onClick={() =>
                                                     openEditForm(department)
                                                 }
-                                                className="mr-4 font-semibold text-[#08613f]"
+                                                className="mr-4 font-semibold text-arms-green"
                                             >
                                                 Edit
                                             </button>
@@ -307,7 +311,7 @@ export default function Departments({
                                     event.target.value,
                                 )
                             }
-                            className="mt-2 block w-full rounded-xl border-stone-300 focus:border-[#08613f] focus:ring-[#08613f]"
+                            className="mt-2 block w-full rounded-xl border-stone-300 focus:border-arms-green focus:ring-arms-green"
                         >
                             <option value="">Select a subsidiary</option>
                             {subsidiaries.map((subsidiary) => (
@@ -332,7 +336,7 @@ export default function Departments({
                             onChange={(event) =>
                                 form.setData('name', event.target.value)
                             }
-                            className="mt-2 block w-full rounded-xl border-stone-300 focus:border-[#08613f] focus:ring-[#08613f]"
+                            className="mt-2 block w-full rounded-xl border-stone-300 focus:border-arms-green focus:ring-arms-green"
                             autoFocus
                         />
                     </label>
@@ -348,7 +352,7 @@ export default function Departments({
                         </button>
                         <button
                             disabled={form.processing}
-                            className="rounded-xl bg-[#08613f] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                            className="rounded-xl bg-arms-green px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                         >
                             {form.processing
                                 ? 'Saving…'
