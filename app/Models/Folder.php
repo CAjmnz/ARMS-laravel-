@@ -61,6 +61,11 @@ class Folder extends Model
         return $this->hasMany(Document::class);
     }
 
+    public function pins(): HasMany
+    {
+        return $this->hasMany(UserPin::class);
+    }
+
     public function subsidiary(): BelongsTo
     {
         return $this->belongsTo(Subsidiary::class);

@@ -45,6 +45,11 @@ class Document extends Model
         return $this->hasMany(DocumentVersion::class);
     }
 
+    public function pins(): HasMany
+    {
+        return $this->hasMany(UserPin::class);
+    }
+
     public function latestVersion()
     {
         return $this->hasOne(DocumentVersion::class)->ofMany('version_number', 'max');

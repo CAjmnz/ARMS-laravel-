@@ -15,7 +15,7 @@ class DatabaseSchemaTest extends TestCase
     {
         foreach ([
             'subsidiaries', 'departments', 'users', 'roles', 'permissions', 'role_user',
-            'permission_role', 'folders', 'documents', 'document_versions', 'document_access',
+            'permission_role', 'folders', 'documents', 'document_versions', 'document_access', 'user_pins',
             'file_types', 'activity_logs', 'system_settings',
         ] as $table) {
             $this->assertTrue(Schema::hasTable($table), "Missing table: {$table}");

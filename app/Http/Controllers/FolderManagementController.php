@@ -6,7 +6,10 @@ use App\Models\Department;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\Subsidiary;
+use App\Models\User;
+use App\Services\DocumentAccessService;
 use App\Services\FolderHierarchyService;
+use App\Services\PinnedItemsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -17,6 +20,8 @@ class FolderManagementController extends Controller
     public function index(
         Request $request,
         FolderHierarchyService $hierarchy,
+        DocumentAccessService $access,
+        PinnedItemsService $pins,
         ?Folder $folder = null,
     ): Response {
         if ($folder) {
@@ -24,8 +29,14 @@ class FolderManagementController extends Controller
         }
 
         $user = $request->user();
+        $visibleFolderIds = $user->roleLevel() < 3 ? $access->visibleFolderIds($user) : [];
+        $visibleDocumentIds = $user->roleLevel() < 3 ? $access->authorizedDocumentIds($user, 'can_view') : [];
+        $search = trim((string) $request->input('search', ''));
+        $pinnedSearchMode = preg_match('/^(pin|pinned)(?:\s+(.*))?$/i', $search, $pinMatch) === 1;
+        $pinnedKeyword = $pinnedSearchMode ? trim((string) ($pinMatch[2] ?? '')) : null;
+        $localSearch = $pinnedSearchMode ? '' : $search;
         $filters = [
-            'search' => trim((string) $request->input('search', '')),
+            'search' => $search,
             'sort' => in_array($request->input('sort'), ['name', 'created_at'], true)
                 ? $request->input('sort')
                 : 'name',
@@ -39,10 +50,12 @@ class FolderManagementController extends Controller
 
         $folders = Folder::query()
             ->where('parent_id', $folder?->id)
-            ->when($user->roleLevel() < 3, fn ($query) => $query->where('is_published', true))
-            ->when($filters['search'], fn ($query, $search) => $query->where('name', 'like', '%'.$search.'%'))
+            ->when($user->roleLevel() < 3, fn ($query) => $query->whereIn('id', $visibleFolderIds))
+            ->when($localSearch, fn ($query, $search) => $query->where('name', 'like', '%'.$search.'%'))
             ->with('creator:id,name')
             ->withCount(['children', 'documents'])
+            ->withExists(['pins as is_pinned' => fn ($query) => $query->where('user_id', $user->id)])
+            ->orderByDesc('is_pinned')
             ->orderBy($filters['sort'], $filters['order'])
             ->paginate($filters['per_page'])
             ->withQueryString()
@@ -56,6 +69,8 @@ class FolderManagementController extends Controller
                 'updated_at' => $item->updated_at?->toIso8601String(),
                 'owner' => $item->creator?->name,
                 'can_upload' => $user->can('upload', $item),
+                'is_pinned' => (bool) $item->is_pinned,
+                'pin_url' => route('documents.folders.pin', $item),
                 'is_published' => (bool) $item->is_published,
                 'can_publish' => $user->can('publish', $item),
                 'can_unpublish' => $user->can('unpublish', $item),
@@ -65,7 +80,9 @@ class FolderManagementController extends Controller
 
 
         $documents = $folder ? Document::query()->where('folder_id', $folder->id)
-            ->when($filters['search'], fn ($query, $search) => $query->where('title', 'like', '%'.$search.'%'))
+            ->when($user->roleLevel() < 3, fn ($query) => $query->whereIn('id', $visibleDocumentIds))
+            ->when($localSearch, fn ($query, $search) => $query->where('title', 'like', '%'.$search.'%'))
+            ->withExists(['pins as is_pinned' => fn ($query) => $query->where('user_id', $user->id)])
             ->with([
                 'creator:id,name',
                 'latestVersion' => fn ($query) => $query->select([
@@ -75,6 +92,7 @@ class FolderManagementController extends Controller
                     'document_versions.scan_status',
                 ]),
             ])
+            ->orderByDesc('is_pinned')
             ->latest('updated_at')->get()->map(fn (Document $item) => [
                 'id' => $item->id,
                 'route_key' => $item->getRouteKey(),
@@ -82,6 +100,8 @@ class FolderManagementController extends Controller
                 'type' => strtoupper($item->latestVersion?->extension ?? 'document'),
                 'modified_at' => $item->updated_at?->toIso8601String(),
                 'owner' => $item->creator?->name ?? '—',
+                'is_pinned' => (bool) $item->is_pinned,
+                'pin_url' => route('documents.pin', $item),
                 'status' => $item->latestVersion?->scan_status ?? $item->status,
                 'show_url' => route('documents.show', $item),
                 'viewer_url' => $item->latestVersion?->scan_status === 'ready' ? route('documents.viewer', $item) : null,
@@ -98,7 +118,7 @@ class FolderManagementController extends Controller
                 'route_key' => $folder->getRouteKey(),
                 'name' => $folder->name,
                 'depth' => $folder->depth,
-                'documents_count' => $folder->documents()->count(),
+                'documents_count' => $documents->count(),
                 'can_manage' => $user->can('update', $folder),
                 'can_upload' => $user->can('upload', $folder),
             ] : null,
@@ -126,6 +146,16 @@ class FolderManagementController extends Controller
                 })
                 ->values(),
             'filters' => $filters,
+            'pinnedSearch' => $pinnedSearchMode ? $pins->paginate($user, $pinnedKeyword, 'all', $filters['per_page']) : null,
+            'pinnedSearchMode' => $pinnedSearchMode,
+            'pinnedSearchKeyword' => $pinnedKeyword,
+            'documentStats' => [
+                'documents' => Document::query()->count(),
+                'folders' => Folder::query()->count(),
+                'pins' => $pins->count($user),
+                'users' => User::query()->count(),
+                'departments' => Department::query()->count(),
+            ],
             'canCreateRoot' => $user->isSuperUser(),
             'organizations' => $user->isSuperUser()
                 ? Subsidiary::query()->with('departments:id,subsidiary_id,name')->orderBy('name')->get(['id', 'name'])

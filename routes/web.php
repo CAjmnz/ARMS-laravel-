@@ -13,6 +13,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RoleReferenceController;
 use App\Http\Controllers\UserRoleController;
 use App\Http\Controllers\UserManagementController;
+use App\Http\Controllers\UserPinController;
 use App\Http\Controllers\SystemSettingsController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -64,6 +65,9 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::delete('/documents/bulk-delete', [FolderManagementController::class, 'bulkDelete'])->name('documents.bulk-delete');
     Route::post('/documents/folders/{folder}/upload', [DocumentController::class, 'upload'])->name('documents.upload');
     Route::get('/documents/manage/{folder}/files', [DocumentController::class, 'files'])->name('documents.files.index');
+    Route::get('/documents/pins', [UserPinController::class, 'index'])->name('documents.pins.index');
+    Route::patch('/documents/folders/{folder}/pin', [UserPinController::class, 'folder'])->name('documents.folders.pin');
+    Route::patch('/documents/{document}/pin', [UserPinController::class, 'document'])->name('documents.pin');
     Route::get('/documents/{document}', [DocumentController::class, 'show'])->name('documents.show');
     Route::get('/documents/{document}/edit', [DocumentController::class, 'edit'])->name('documents.edit');
     Route::patch('/documents/{document}', [DocumentController::class, 'update'])->name('documents.update');

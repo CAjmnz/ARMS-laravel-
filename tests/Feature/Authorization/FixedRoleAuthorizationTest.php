@@ -75,6 +75,53 @@ class FixedRoleAuthorizationTest extends TestCase
         $this->assertTrue($levelTwo->can('download', $document));
     }
 
+    public function test_level_two_folder_tag_grants_descendant_documents_and_navigation_even_when_unpublished(): void
+    {
+        $subsidiary = Subsidiary::query()->create(['code' => 'HO', 'name' => 'Head Office', 'status' => 'active']);
+        $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
+        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Tagged Root', 'slug' => 'tagged-root', 'depth' => 0, 'is_published' => false]);
+        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => false]);
+        $document = Document::query()->create(['folder_id' => $child->id, 'title' => 'Tagged Descendant']);
+        $levelTwo = $this->userWithRole(Role::LEVEL_2);
+
+        DocumentAccess::query()->create([
+            'folder_id' => $root->id,
+            'user_id' => $levelTwo->id,
+            'can_view' => true,
+            'can_download' => true,
+        ]);
+
+        $this->assertTrue($levelTwo->can('view', $root));
+        $this->assertTrue($levelTwo->can('view', $child));
+        $this->assertTrue($levelTwo->can('view', $document));
+        $this->assertTrue($levelTwo->can('download', $document));
+    }
+
+    public function test_direct_document_tag_exposes_its_path_without_granting_sibling_files(): void
+    {
+        $subsidiary = Subsidiary::query()->create(['code' => 'HO', 'name' => 'Head Office', 'status' => 'active']);
+        $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
+        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Root', 'slug' => 'root', 'depth' => 0, 'is_published' => false]);
+        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => false]);
+        $tagged = Document::query()->create(['folder_id' => $child->id, 'title' => 'Tagged File']);
+        $sibling = Document::query()->create(['folder_id' => $child->id, 'title' => 'Private Sibling']);
+        $levelTwo = $this->userWithRole(Role::LEVEL_2);
+
+        DocumentAccess::query()->create([
+            'document_id' => $tagged->id,
+            'user_id' => $levelTwo->id,
+            'can_view' => true,
+            'can_download' => true,
+        ]);
+
+        $this->assertTrue($levelTwo->can('view', $root));
+        $this->assertTrue($levelTwo->can('view', $child));
+        $this->assertTrue($levelTwo->can('view', $tagged));
+        $this->assertTrue($levelTwo->can('download', $tagged));
+        $this->assertFalse($levelTwo->can('view', $sibling));
+        $this->assertFalse($levelTwo->can('download', $sibling));
+    }
+
     public function test_level_four_can_assign_a_lower_fixed_role(): void
     {
         $manager = $this->userWithRole(Role::LEVEL_4);

@@ -2,7 +2,7 @@ import ArmsIcon from '@/Components/ArmsIcon';
 import { CategoryOverview, DashboardPanel, DashboardStatCard, MemberOverview, QuickAccess, RecentActivities, StorageOverview, type CategoryItem, type DashboardSummary, type MemberRoleItem, type QuickActionItem, type RecentActivityItem } from '@/Components/DashboardSections';
 import { DocumentActivityChart } from '@/Components/DashboardCharts';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { FormEvent, useMemo, useState } from 'react';
 
 interface ActivityPoint {
@@ -11,7 +11,8 @@ interface ActivityPoint {
     uploads: number;
 }
 interface AccountDetails { department:string|null; employeeId:string; lastLoginAt:string|null; name:string; position:string|null; subsidiary:string|null }
-interface DashboardProps { account:AccountDetails; activity:ActivityPoint[]; greeting:string; lastLoginAt:string|null; summary:DashboardSummary; recentActivities:RecentActivityItem[]; topCategories:CategoryItem[]; storageBytes:number; memberRoles:MemberRoleItem[] }
+interface PinnedItem { pin_id:number; kind:'folder'|'document'; type:string; id:number; route_key:string; name:string; path:string; updated_at?:string|null; href:string; is_pinned:boolean }
+interface DashboardProps { account:AccountDetails; activity:ActivityPoint[]; greeting:string; lastLoginAt:string|null; summary:DashboardSummary; recentActivities:RecentActivityItem[]; pinnedItems:PinnedItem[]; topCategories:CategoryItem[]; storageBytes:number; memberRoles:MemberRoleItem[] }
 
 function formatDateTime(value:string|null):string {
     if (!value) return 'Not recorded';
@@ -22,7 +23,7 @@ function currentDateLabel():string {
     return new Intl.DateTimeFormat(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}).format(new Date());
 }
 
-export default function Dashboard({account,activity,greeting,lastLoginAt,summary,recentActivities,topCategories,storageBytes,memberRoles}:DashboardProps) {
+export default function Dashboard({account,activity,greeting,lastLoginAt,summary,recentActivities,pinnedItems,topCategories,storageBytes,memberRoles}:DashboardProps) {
     const { auth } = usePage().props;
     const [search,setSearch] = useState('');
     const quickActions = useMemo<QuickActionItem[]>(() => {
@@ -77,7 +78,18 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
                 <DashboardPanel title="Recent Activities"><RecentActivities items={recentActivities} formatDate={formatDateTime} /></DashboardPanel>
             </section>
 
-            <DashboardPanel title="Quick Access"><QuickAccess actions={quickActions} /></DashboardPanel>
+            <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.75fr)]">
+                <DashboardPanel title="Quick Access"><QuickAccess actions={quickActions} /></DashboardPanel>
+                <DashboardPanel title="Pinned Items" action={<Link href={route('documents.manage') + '?search=pin'} className="text-xs font-semibold text-arms-green hover:text-arms-dark">View all</Link>}>
+                    {pinnedItems.length ? <div className="divide-y divide-stone-100">
+                        {pinnedItems.map((item)=><Link key={item.pin_id} href={item.href} className="flex items-center gap-3 px-1 py-3 transition hover:bg-emerald-50/60">
+                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-arms-green"><ArmsIcon name={item.kind === 'folder' ? 'folder' : 'document'} className="h-4 w-4" /></span>
+                            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#073d2f]">{item.name}</span><span className="block truncate text-[11px] text-stone-400">{item.type} · {item.path}</span></span>
+                            <ArmsIcon name="pin" className="h-4 w-4 shrink-0 text-red-500" />
+                        </Link>)}
+                    </div> : <div className="py-8 text-center text-sm text-stone-500"><ArmsIcon name="pin" className="mx-auto mb-2 h-6 w-6 text-stone-300" />No pinned items yet.</div>}
+                </DashboardPanel>
+            </section>
 
             <section className="grid gap-5 lg:grid-cols-3">
                 <DashboardPanel title="Top Document Categories"><CategoryOverview categories={topCategories} /></DashboardPanel>

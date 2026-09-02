@@ -4,16 +4,22 @@ namespace App\Policies;
 
 use App\Models\Folder;
 use App\Models\User;
+use App\Services\DocumentAccessService;
 
 class FolderPolicy
 {
+    public function __construct(private DocumentAccessService $access)
+    {
+    }
+
     public function view(User $user, Folder $folder): bool
     {
         if ($user->roleLevel() >= 3) {
             return true;
         }
 
-        return $folder->is_published && $user->hasPermission('documents.view');
+        return $user->hasPermission('documents.view')
+            && $this->access->canViewFolder($user, $folder);
     }
 
     public function create(User $user, Folder $parent): bool

@@ -11,6 +11,10 @@ use Illuminate\Support\Facades\DB;
 
 class DashboardStatisticsService
 {
+    public function __construct(private PinnedItemsService $pins)
+    {
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -29,6 +33,7 @@ class DashboardStatisticsService
             ],
             'activity' => $this->activity($now),
             'recentActivities' => $this->recentActivities(),
+            'pinnedItems' => $this->pins->top($user, 5)->values(),
             'topCategories' => $this->topCategories(),
             'storageBytes' => (int) DB::table('document_versions')->sum('size_bytes'),
             'memberRoles' => $this->memberRoles(),

@@ -1,4 +1,5 @@
 import ArmsIcon from '@/Components/ArmsIcon';
+import PinnedItemsDropdown from '@/Components/PinnedItemsDropdown';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, useForm } from '@inertiajs/react';
 import { DragEvent, FormEvent, useEffect, useRef, useState, useMemo } from 'react';
@@ -12,6 +13,8 @@ interface Folder {
     depth?: number;
     can_manage: boolean;
     can_upload?: boolean;
+    is_pinned?: boolean;
+    pin_url?: string;
     is_published?: boolean;
     can_publish?: boolean;
     can_unpublish?: boolean;
@@ -21,7 +24,9 @@ interface Folder {
     owner?: string | null;
 }
 
-interface DocumentItem { id:number; route_key:string; name:string; type:string; modified_at?:string|null; owner:string; show_url:string; viewer_url?:string|null; download_url?:string|null; edit_url?:string|null; update_url?:string|null; move_url?:string|null; delete_url?:string|null; }
+interface DocumentItem { id:number; route_key:string; name:string; type:string; modified_at?:string|null; owner:string; show_url:string; viewer_url?:string|null; download_url?:string|null; edit_url?:string|null; update_url?:string|null; move_url?:string|null; delete_url?:string|null; is_pinned?:boolean; pin_url?:string; }
+interface PinnedSearchItem { pin_id:number; kind:'folder'|'document'; type:string; id:number; route_key:string; name:string; path:string; updated_at?:string|null; href:string; is_pinned:boolean; }
+interface PinnedSearchPage { data:PinnedSearchItem[]; current_page:number; last_page:number; prev_page_url:string|null; next_page_url:string|null; total:number; }
 
 interface Organization {
     id: number;
@@ -31,10 +36,14 @@ interface Organization {
 
 interface Props {
     currentFolder: Folder | null;
+    documentStats: { documents:number; folders:number; pins:number; users:number; departments:number };
     breadcrumbs: { id: number; route_key: string; name: string }[];
     folders: { data: Folder[]; current_page: number; last_page: number; prev_page_url: string | null; next_page_url: string | null };
     documents: DocumentItem[];
     filters: { search: string; sort?: string; order?: 'asc' | 'desc'; per_page?: number };
+    pinnedSearch: PinnedSearchPage | null;
+    pinnedSearchMode: boolean;
+    pinnedSearchKeyword: string | null;
     canCreateRoot: boolean;
     organizations: Organization[];
     uploadFolders: { id: number; route_key: string; name: string; path: string; depth: number; group_label: string }[];
@@ -43,12 +52,21 @@ interface Props {
 const formatDate = (value?: string | null) =>
     value ? new Intl.DateTimeFormat('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(value)) : '—';
 
+function PinMarker({ pinned }: { pinned?: boolean }) {
+    if (!pinned) return null;
+    return <span title="Pinned" className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm"><ArmsIcon name="pin" className="h-3 w-3 fill-current text-red-500" /></span>;
+}
+
 export default function Manage({
     currentFolder,
+    documentStats,
     breadcrumbs,
     folders,
     documents,
     filters,
+    pinnedSearch,
+    pinnedSearchMode,
+    pinnedSearchKeyword,
     canCreateRoot,
     organizations,
     uploadFolders,
@@ -199,8 +217,17 @@ export default function Manage({
     };
 
     return (
-        <AuthenticatedLayout breadcrumb="A.R.M.S" title="Document Management">
-            <Head title="Document Management" />
+        <AuthenticatedLayout
+            kicker="DOCUMENTS DIRECTORY"
+            title="Documents"
+            description="Open a filename to browse its subfolders one level at a time."
+            showClock={false}
+            header={<div className="flex min-w-0 items-center justify-end gap-3">
+                <DocumentSummaryCard icon="document" value={documentStats.documents} label="Total documents" />
+                <PinnedItemsDropdown count={documentStats.pins} />
+            </div>}
+        >
+            <Head title="Documents" />
 
             <section className="mx-auto max-w-7xl px-5 py-7 sm:px-8 lg:px-10">
                 <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
@@ -243,20 +270,24 @@ export default function Manage({
                 <main className="mt-5 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
                     <header className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-100 px-5 py-5 sm:px-6">
                         <div>
-                            <h2 className="text-xl font-semibold text-[#073d2f] sm:text-2xl">{currentFolder?.name ?? 'Documents'}</h2>
-                            <p className="mt-1 text-sm text-stone-500">Folders and documents in this location</p>
+                            <h2 className="text-xl font-semibold text-[#073d2f] sm:text-2xl">{pinnedSearchMode ? 'Pinned Search Results' : (currentFolder?.name ?? 'Documents')}</h2>
+                            <p className="mt-1 text-sm text-stone-500">{pinnedSearchMode ? 'Pinned items from all accessible locations' : 'Folders and documents in this location'}</p>
                         </div>
                         <div className="flex items-center gap-4">
-                            <span className="text-sm text-stone-500">{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>
-                            <div className="flex overflow-hidden rounded-lg border border-stone-200 p-0.5" aria-label="Choose view">
+                            <span className="text-sm text-stone-500">{pinnedSearchMode ? (pinnedSearch?.total ?? 0) : itemCount} {(pinnedSearchMode ? (pinnedSearch?.total ?? 0) : itemCount) === 1 ? 'item' : 'items'}</span>
+                            {!pinnedSearchMode && <div className="flex overflow-hidden rounded-lg border border-stone-200 p-0.5" aria-label="Choose view">
                                 <button type="button" onClick={() => setView('list')} aria-label="List view" aria-pressed={view === 'list'} className={'grid h-8 w-9 place-items-center rounded-md text-sm font-bold transition ' + (view === 'list' ? 'bg-arms-green text-white' : 'text-stone-500 hover:bg-stone-100')}>☰</button>
                                 <button type="button" onClick={() => setView('grid')} aria-label="Grid view" aria-pressed={view === 'grid'} className={'grid h-8 w-9 place-items-center rounded-md text-lg transition ' + (view === 'grid' ? 'bg-arms-green text-white' : 'text-stone-500 hover:bg-stone-100')}>⊞</button>
-                            </div>
+                            </div>}
                         </div>
                     </header>
 
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4 sm:px-6">
-                        <div className="flex flex-wrap items-center gap-3">
+                        {pinnedSearchMode ? <div className="flex flex-wrap items-center gap-3 text-sm">
+                            <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-arms-green"><ArmsIcon name="pin" className="h-4 w-4" /> Pinned items from all locations</span>
+                            {pinnedSearchKeyword && <span className="text-stone-500">matching “{pinnedSearchKeyword}”</span>}
+                            <button type="button" onClick={() => router.get(route('documents.manage', currentFolder?.route_key), { sort:filters.sort, order:filters.order, per_page:filters.per_page }, { preserveScroll:true, replace:true })} className="rounded-lg border border-stone-300 bg-white px-3 py-2 font-semibold text-stone-600 hover:bg-stone-50">Clear search</button>
+                        </div> : <div className="flex flex-wrap items-center gap-3">
                             <div className="relative">
                                 <button type="button" onClick={() => setBulkOpen((open) => !open)} disabled={!selectedItems.size} className="inline-flex h-10 items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-700 shadow-sm hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-45">Bulk actions <span className="text-xs">⌄</span></button>
                                 {bulkOpen && <div className="absolute left-0 top-12 z-40 w-60 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl">
@@ -266,7 +297,7 @@ export default function Manage({
                                 </div>}
                             </div>
                             <span className="text-sm text-stone-500">{selectedItems.size ? `${selectedItems.size} item(s) selected` : 'No records selected'}</span>
-                        </div>
+                        </div>}
                         <label className="flex items-center gap-2 text-sm text-stone-600">Show
                             <select value={filters.per_page ?? 10} onChange={(event) => updateTable({ per_page: Number(event.target.value) })} className="h-10 rounded-xl border-stone-300 bg-white py-1 pl-3 pr-8 text-sm">
                                 {[10,25,50,100].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -275,7 +306,9 @@ export default function Manage({
                         </label>
                     </div>
 
-                    {itemCount === 0 ? (
+                    {pinnedSearchMode ? (
+                        <PinnedSearchResults page={pinnedSearch} />
+                    ) : itemCount === 0 ? (
                         <div className="px-6 py-20 text-center">
                             <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-8 w-8" /></span>
                             <h3 className="mt-5 text-xl font-semibold text-[#073d2f]">No folders found</h3>
@@ -316,7 +349,7 @@ export default function Manage({
                         </div>
                     )}
 
-                    {folders.last_page > 1 && (
+                    {!pinnedSearchMode && folders.last_page > 1 && (
                         <footer className="flex items-center justify-between border-t border-stone-100 px-5 py-4 text-sm sm:px-6">
                             <span className="text-stone-500">Page {folders.current_page} of {folders.last_page}</span>
                             <div className="flex gap-2">
@@ -455,13 +488,20 @@ export default function Manage({
     );
 }
 
+function DocumentSummaryCard({ icon, value, label }: { icon:'document'|'folder'|'users'|'building'; value:number; label:string }) {
+    return <div className="flex min-h-[68px] min-w-[170px] items-center gap-3 rounded-xl border border-[#d7e7df] bg-white px-3.5 py-2 shadow-[0_4px_14px_rgba(6,59,45,0.05)]">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-[#d7eee3] bg-[#effaf4] text-[#087b57]"><ArmsIcon name={icon} className="h-5 w-5" /></span>
+        <span className="min-w-0"><strong className="block text-[21px] font-bold leading-none text-[#073d2f]">{value.toLocaleString()}</strong><span className="mt-1.5 block truncate text-[11px] font-medium text-[#71837d]">{label}</span></span>
+    </div>;
+}
+
 function FolderRow({ folder, selected, onSelected }: { folder: Folder; selected: boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <tr className={'group transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><Link href={route('documents.manage', folder.route_key)} className="flex min-w-[220px] items-center gap-3 font-medium text-[#073d2f] hover:text-arms-green"><span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></span><span className="truncate">{folder.name}</span></Link></td><td className="px-5 py-4 text-sm text-stone-600">Folder</td><td className="hidden px-5 py-4 text-sm text-stone-500 md:table-cell">{formatDate(folder.updated_at)}</td><td className="hidden px-5 py-4 text-sm text-stone-500 lg:table-cell">{folder.owner ?? '—'}</td><td className="px-4 py-4 text-center"><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
+    return <tr className={'group transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><Link href={route('documents.manage', folder.route_key)} className="flex min-w-[220px] items-center gap-3 font-medium text-[#073d2f] hover:text-arms-green"><span className="relative grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /><PinMarker pinned={folder.is_pinned} /></span><span className="min-w-0 truncate">{folder.name}</span></Link></td><td className="px-5 py-4 text-sm text-stone-600">Folder</td><td className="hidden px-5 py-4 text-sm text-stone-500 md:table-cell">{formatDate(folder.updated_at)}</td><td className="hidden px-5 py-4 text-sm text-stone-500 lg:table-cell">{folder.owner ?? '—'}</td><td className="px-4 py-4 text-center"><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
 }
 function FolderCard({ folder, selected, onSelected }: { folder: Folder; selected: boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.route_key)} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></Link><Link href={route('documents.manage', folder.route_key)} className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
+    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.route_key)} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /><PinMarker pinned={folder.is_pinned} /></Link><Link href={route('documents.manage', folder.route_key)} className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
 }
 function DocumentThumbnail({ document }: { document: DocumentItem }) {
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
@@ -471,11 +511,11 @@ function DocumentThumbnail({ document }: { document: DocumentItem }) {
 }
 function DocumentRow({ document, destinations, onOpen, selected, onSelected }: { document: DocumentItem; destinations: Props['uploadFolders']; onOpen:(document:DocumentItem)=>void; selected:boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <tr className={'transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + document.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><button onClick={() => onOpen(document)} className="flex items-center gap-3 font-medium text-[#073d2f]"><span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="document" className="h-5 w-5" /></span>{document.name}</button></td><td className="px-5 py-4 text-sm">{document.type}</td><td className="hidden px-5 py-4 text-sm md:table-cell">{formatDate(document.modified_at)}</td><td className="hidden px-5 py-4 text-sm lg:table-cell">{document.owner}</td><td className="px-4 py-4 text-center"><DocumentActions document={document} destinations={destinations} onOpen={onOpen} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
+    return <tr className={'transition ' + (menuOpen || selected ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200' : 'hover:bg-emerald-50/40')}><td className="px-5 py-4 sm:px-6"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + document.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></td><td className="px-5 py-4"><button onClick={() => onOpen(document)} className="flex items-center gap-3 font-medium text-[#073d2f]"><span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="document" className="h-5 w-5" /><PinMarker pinned={document.is_pinned} /></span><span>{document.name}</span></button></td><td className="px-5 py-4 text-sm">{document.type}</td><td className="hidden px-5 py-4 text-sm md:table-cell">{formatDate(document.modified_at)}</td><td className="hidden px-5 py-4 text-sm lg:table-cell">{document.owner}</td><td className="px-4 py-4 text-center"><DocumentActions document={document} destinations={destinations} onOpen={onOpen} open={menuOpen} onOpenChange={setMenuOpen} /></td></tr>;
 }
 function DocumentCard({ document, destinations, onOpen, selected, onSelected }: { document: DocumentItem; destinations: Props['uploadFolders']; onOpen:(document:DocumentItem)=>void; selected:boolean; onSelected:(checked:boolean)=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <div className={'rounded-xl border bg-white p-3 text-left shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/60 ring-2 ring-emerald-100' : 'border-stone-200 hover:border-[#b7d9cb] hover:shadow-md')}><div className="flex items-center justify-between"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + document.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><DocumentActions document={document} destinations={destinations} onOpen={onOpen} open={menuOpen} onOpenChange={setMenuOpen} /></div><button onClick={() => onOpen(document)} className="mt-2 block w-full text-left"><div className="grid h-28 place-items-center overflow-hidden rounded-lg border border-stone-100 bg-stone-50"><DocumentThumbnail document={document} /></div><p className="mt-2 truncate text-sm font-semibold text-[#073d2f]">{document.name}</p><p className="text-[11px] text-stone-500">{document.type} · {formatDate(document.modified_at)}</p></button></div>;
+    return <div className={'rounded-xl border bg-white p-3 text-left shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/60 ring-2 ring-emerald-100' : 'border-stone-200 hover:border-[#b7d9cb] hover:shadow-md')}><div className="flex items-center justify-between"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + document.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><DocumentActions document={document} destinations={destinations} onOpen={onOpen} open={menuOpen} onOpenChange={setMenuOpen} /></div><button onClick={() => onOpen(document)} className="mt-2 block w-full text-left"><div className="relative grid h-28 place-items-center overflow-visible rounded-lg border border-stone-100 bg-stone-50"><div className="h-full w-full overflow-hidden rounded-lg grid place-items-center"><DocumentThumbnail document={document} /></div><PinMarker pinned={document.is_pinned} /></div><p className="mt-2 truncate text-sm font-semibold text-[#073d2f]">{document.name}</p><p className="text-[11px] text-stone-500">{document.type} · {formatDate(document.modified_at)}</p></button></div>;
 }
 function LegacyDocumentViewer({ document, documents, destinations, close }: { document:DocumentItem; documents:DocumentItem[]; destinations:Props['uploadFolders']; close:()=>void }) {
     const [current, setCurrent] = useState(document);
@@ -609,7 +649,7 @@ function DocumentActions({ document, destinations, onOpen, open, onOpenChange }:
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
         const menuWidth = 208;
-        const menuHeight = 230;
+        const menuHeight = 270;
         const viewportPadding = 12;
         const availableBelow = window.innerHeight - rect.bottom;
         const top = availableBelow >= menuHeight + viewportPadding
@@ -632,6 +672,11 @@ function DocumentActions({ document, destinations, onOpen, open, onOpenChange }:
         if (!document.move_url || !destinationId) return;
         router.patch(document.move_url, { folder_id: destinationId }, { preserveScroll: true, onSuccess: () => { setTransferOpen(false); setDestinationId(''); } });
     };
+    const togglePin = () => {
+        if (!document.pin_url) return;
+        onOpenChange(false);
+        router.patch(document.pin_url, {}, { preserveScroll: true });
+    };
     const remove = () => {
         if (!document.delete_url) return;
         router.delete(document.delete_url, { preserveScroll: true, onSuccess: () => setDeleteOpen(false) });
@@ -640,6 +685,7 @@ function DocumentActions({ document, destinations, onOpen, open, onOpenChange }:
         <button type="button" onClick={toggle} aria-label={'Actions for ' + document.name} className={'rounded-lg px-2 py-1 text-lg leading-none transition ' + (open ? 'bg-emerald-100 text-[#073d2f]' : 'text-stone-500 hover:bg-emerald-50')}>⋮</button>
         {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}>
             <button onClick={closeAndOpen} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Open viewer</button>
+            {document.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (document.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{document.is_pinned ? 'Unpin' : 'Pin'}</button>}
             {document.download_url && <a href={document.download_url} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Download viewer</a>}
             {document.update_url && <button type="button" onClick={() => { setRenameValue(document.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}
             {document.move_url && <button type="button" onClick={() => { onOpenChange(false); setTransferOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Transfer</button>}
@@ -659,7 +705,7 @@ function FolderActions({ folder, open, onOpenChange }: { folder: Folder; open:bo
         event.preventDefault(); event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
         const menuWidth = 208;
-        const menuHeight = 150;
+        const menuHeight = 190;
         const viewportPadding = 12;
         const availableBelow = window.innerHeight - rect.bottom;
         const top = availableBelow >= menuHeight + viewportPadding
@@ -677,17 +723,36 @@ function FolderActions({ folder, open, onOpenChange }: { folder: Folder; open:bo
         if (!folder.rename_url || !renameValue.trim()) return;
         router.patch(folder.rename_url, { name: renameValue.trim() }, { preserveScroll: true, onSuccess: () => setRenameOpen(false) });
     };
+    const togglePin = () => {
+        if (!folder.pin_url) return;
+        onOpenChange(false);
+        router.patch(folder.pin_url, {}, { preserveScroll: true });
+    };
     const remove = () => {
         if (!folder.delete_url) return;
         router.delete(folder.delete_url, { preserveScroll: true, onSuccess: () => setDeleteOpen(false) });
     };
     return <div className="inline-block text-left">
         <button type="button" onClick={toggle} aria-label={'Actions for folder ' + folder.name} className={'rounded-lg px-2 py-1 text-lg leading-none transition ' + (open ? 'bg-emerald-100 text-[#073d2f]' : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')}>⋮</button>
-        {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete</button>}</div>}
+        {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (folder.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{folder.is_pinned ? 'Unpin' : 'Pin'}</button>}{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete</button>}</div>}
         {renameOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><form onSubmit={submitRename} className="w-full max-w-md rounded-2xl bg-white p-6 text-left shadow-2xl"><div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-xl text-arms-green">✎</div><h3 className="mt-4 text-center text-xl font-semibold text-[#073d2f]">Rename folder</h3><p className="mt-1 text-center text-sm text-stone-500">Spaces will automatically become underscores. Windows-invalid characters are not allowed.</p><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"/><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setRenameOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white">Rename</button></div></form></div>}
         {deleteOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">!</div><h3 className="mt-4 text-xl font-semibold text-[#073d2f]">Delete folder?</h3><p className="mt-2 text-sm text-stone-500">Delete <strong>{folder.name}</strong>? Only empty folders can be deleted.</p><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button type="button" onClick={remove} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Yes, delete</button></div></div></div>}
     </div>;
 }
+function PinnedSearchResults({ page }: { page: PinnedSearchPage | null }) {
+    const items = page?.data ?? [];
+    if (!items.length) return <div className="px-6 py-16 text-center"><ArmsIcon name="pin" className="mx-auto h-8 w-8 text-stone-300" /><h3 className="mt-4 text-lg font-semibold text-[#073d2f]">No pinned items found</h3><p className="mt-1 text-sm text-stone-500">Try another pinned keyword, for example “pin audit”.</p></div>;
+    return <>
+        <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-stone-100 text-left">
+                <thead className="bg-stone-50/80"><tr className="text-xs font-semibold uppercase tracking-wide text-stone-500"><th className="px-5 py-3.5 sm:px-6">Type</th><th className="px-5 py-3.5">Name</th><th className="px-5 py-3.5">Path</th><th className="hidden px-5 py-3.5 md:table-cell">Last updated</th><th className="w-24 px-5 py-3.5 text-right">Actions</th></tr></thead>
+                <tbody className="divide-y divide-stone-100">{items.map((item)=><tr key={item.pin_id} className="hover:bg-emerald-50/40"><td className="px-5 py-4 sm:px-6"><span className="inline-flex items-center gap-3 text-sm text-stone-600"><span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name={item.kind === 'folder' ? 'folder' : 'document'} className="h-4 w-4" /><PinMarker pinned /></span>{item.type}</span></td><td className="px-5 py-4"><Link href={item.href} className="font-semibold text-[#073d2f] hover:text-arms-green">{item.name}</Link></td><td className="max-w-md px-5 py-4"><span title={item.path} className="block truncate text-sm text-stone-500">{item.path}</span></td><td className="hidden px-5 py-4 text-sm text-stone-500 md:table-cell">{formatDate(item.updated_at)}</td><td className="px-5 py-4 text-right"><Link href={item.href} className="rounded-lg border border-stone-200 px-3 py-1.5 text-xs font-semibold text-arms-green hover:bg-emerald-50">Open</Link></td></tr>)}</tbody>
+            </table>
+        </div>
+        {page && page.last_page > 1 && <footer className="flex items-center justify-between border-t border-stone-100 px-5 py-4 text-sm sm:px-6"><span className="text-stone-500">Page {page.current_page} of {page.last_page}</span><div className="flex gap-2"><PageButton url={page.prev_page_url} label="Previous" /><PageButton url={page.next_page_url} label="Next" /></div></footer>}
+    </>;
+}
+
 function PageButton({ url, label }: { url: string | null; label: string }) {
     return <button type="button" disabled={!url} onClick={() => url && router.visit(url, { preserveScroll: true })} className="rounded-lg border border-stone-300 px-3 py-1.5 font-medium text-stone-700 transition hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-40">{label}</button>;
 }

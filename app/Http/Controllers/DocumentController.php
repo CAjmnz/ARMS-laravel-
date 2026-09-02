@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\User;
+use App\Services\DocumentAccessService;
 use App\Services\DocumentUploadService;
 use App\Services\FolderHierarchyService;
 use Illuminate\Http\RedirectResponse;
@@ -16,15 +17,19 @@ use Inertia\Response;
 
 class DocumentController extends Controller
 {
-    public function files(Request $request, Folder $folder, FolderHierarchyService $hierarchy): Response
+    public function files(Request $request, Folder $folder, FolderHierarchyService $hierarchy, DocumentAccessService $access): Response
     {
         $this->authorize('view', $folder);
         $search = trim((string) $request->input('search', ''));
         $perPage = in_array((int) $request->input('per_page'), [10, 25, 50, 100], true) ? (int) $request->input('per_page') : 10;
         $user = $request->user();
 
+        $visibleDocumentIds = $user->roleLevel() < 3 ? $access->authorizedDocumentIds($user, 'can_view') : [];
+
         $documents = Document::query()->where('folder_id', $folder->id)
+            ->when($user->roleLevel() < 3, fn ($query) => $query->whereIn('id', $visibleDocumentIds))
             ->when($search, fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
+            ->withExists(['pins as is_pinned' => fn ($query) => $query->where('user_id', $user->id)])
             ->with([
                 'creator:id,name',
                 'latestVersion' => fn ($query) => $query->select([
@@ -36,6 +41,7 @@ class DocumentController extends Controller
                     'document_versions.uploaded_by',
                 ]),
             ])
+            ->orderByDesc('is_pinned')
             ->latest('updated_at')->paginate($perPage)->withQueryString()->through(fn (Document $item) => [
                 'id' => $item->id,
                 'route_key' => $item->getRouteKey(),
@@ -43,6 +49,8 @@ class DocumentController extends Controller
                 'type' => strtoupper($item->latestVersion?->extension ?? 'document'),
                 'modified_at' => $item->updated_at?->toIso8601String(),
                 'owner' => $item->creator?->name ?? '—',
+                'is_pinned' => (bool) $item->is_pinned,
+                'pin_url' => route('documents.pin', $item),
                 'status' => $item->latestVersion?->scan_status ?? $item->status,
                 'created_at' => $item->created_at?->toIso8601String(),
                 'size' => $item->latestVersion?->size_bytes,
@@ -248,6 +256,8 @@ class DocumentController extends Controller
             'folder' => ['id' => $document->folder->id, 'route_key' => $document->folder->getRouteKey(), 'name' => $document->folder->name],
             'uploader' => $version?->uploader?->name ?? $document->creator?->name ?? '—',
             'version' => $version ? ['type' => strtoupper($version->extension), 'size' => $version->size_bytes, 'status' => $version->scan_status] : null,
+            'is_pinned' => $document->pins()->where('user_id', $user->id)->exists(),
+            'pin_url' => route('documents.pin', $document),
             'urls' => [
                 'viewer' => $version?->scan_status === 'ready' ? route('documents.viewer', $document) : null,
                 'download' => $user->can('download', $document) ? route('documents.download', $document) : null,

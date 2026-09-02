@@ -3,22 +3,26 @@
 namespace App\Policies;
 
 use App\Models\Document;
-use App\Models\DocumentAccess;
 use App\Models\Folder;
 use App\Models\User;
+use App\Services\DocumentAccessService;
 
 class DocumentPolicy
 {
+    public function __construct(private DocumentAccessService $access)
+    {
+    }
+
     public function view(User $user, Document $document): bool
     {
         return $user->hasPermission('documents.view')
-            && ($user->roleLevel() >= 3 || $this->hasAssignedAccess($user, $document, 'can_view'));
+            && ($user->roleLevel() >= 3 || $this->access->hasDocumentAccess($user, $document, 'can_view'));
     }
 
     public function download(User $user, Document $document): bool
     {
         return $user->hasPermission('documents.download')
-            && ($user->roleLevel() >= 3 || $this->hasAssignedAccess($user, $document, 'can_download'));
+            && ($user->roleLevel() >= 3 || $this->access->hasDocumentAccess($user, $document, 'can_download'));
     }
 
     public function downloadOriginal(User $user, Document $document): bool
@@ -71,10 +75,4 @@ class DocumentPolicy
         return $user->isSuperUser() || ($user->roleLevel() === 3 && $folder->created_by === $user->id);
     }
 
-    private function hasAssignedAccess(User $user, Document $document, string $ability): bool
-    {
-        return DocumentAccess::query()->where('user_id', $user->id)->where($ability, true)
-            ->where(fn ($query) => $query->where('document_id', $document->id)->orWhere('folder_id', $document->folder_id))
-            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))->exists();
-    }
 }

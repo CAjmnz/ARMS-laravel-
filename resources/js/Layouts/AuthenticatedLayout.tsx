@@ -11,7 +11,10 @@ import {
 
 interface AuthenticatedLayoutProps {
     breadcrumb?: string;
+    description?: string;
     header?: ReactNode;
+    kicker?: string;
+    showClock?: boolean;
     title?: string;
 }
 
@@ -34,7 +37,10 @@ function initials(name: string): string {
 export default function AuthenticatedLayout({
     breadcrumb = 'A.R.M.S',
     children,
+    description,
     header,
+    kicker,
+    showClock = true,
     title = 'Dashboard',
 }: PropsWithChildren<AuthenticatedLayoutProps>) {
     const page = usePage();
@@ -244,20 +250,22 @@ export default function AuthenticatedLayout({
             </aside>
 
             <div className={`min-h-screen transition-[padding] duration-200 ${sidebarCollapsed ? 'lg:pl-24' : 'lg:pl-72'}`}>
-                <header className="sticky top-0 z-50 border-b border-stone-200 bg-white/95 px-5 py-5 shadow-sm backdrop-blur sm:px-8 lg:px-10">
-                    <div className="flex min-h-16 items-center justify-between gap-5 pl-14 lg:pl-0">
-                        <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#8b7a57]">
-                                {breadcrumb} <span className="px-1">›</span>{' '}
-                                {title}
+                <header className="sticky top-0 z-50 border-b border-stone-200 bg-white/95 px-5 py-4 shadow-sm backdrop-blur sm:px-8 lg:px-10">
+                    <div className="flex min-h-16 flex-col gap-4 pl-14 xl:flex-row xl:items-center xl:justify-between xl:gap-5 lg:pl-0">
+                        <div className="min-w-0 shrink-0">
+                            <p className={'text-[10px] font-extrabold uppercase tracking-[0.18em] ' + (kicker ? 'text-[#087b57]' : 'text-[#8b7a57]')}>
+                                {kicker ?? <>{breadcrumb} <span className="px-1">›</span> {title}</>}
                             </p>
-                            <h1 className="mt-1 font-serif text-4xl text-[#082f25]">
+                            <h1 className={'mt-1 truncate text-[#082f25] ' + (kicker ? 'text-[30px] font-semibold leading-tight tracking-tight' : 'font-serif text-4xl')}>
                                 {title}
                             </h1>
+                            {description && <p className="mt-1 max-w-[560px] text-[13px] leading-5 text-[#71837d]">{description}</p>}
                         </div>
 
-                        <div className="flex items-center gap-4 sm:gap-7">
-                            <div className="hidden items-center gap-3 border-r border-stone-200 pr-7 text-right md:flex">
+                        {header && <div className="min-w-0 flex-1 xl:px-2">{header}</div>}
+
+                        <div className="flex shrink-0 items-center gap-4 sm:gap-7">
+                            {showClock && <div className="hidden items-center gap-3 border-r border-stone-200 pr-7 text-right md:flex">
                                 <ArmsIcon
                                     name="clock"
                                     className="h-6 w-6 text-[#033b2d]"
@@ -278,23 +286,23 @@ export default function AuthenticatedLayout({
                                         })}
                                     </p>
                                 </div>
-                            </div>
+                            </div>}
 
                             <Dropdown>
                                 <Dropdown.Trigger>
                                     <button
                                         type="button"
                                         aria-label="Open account menu"
-                                        className="flex items-center gap-3 rounded-2xl border border-[#d4a936] bg-white px-3 py-2 text-left shadow-sm transition hover:bg-[#fffdf5] focus:outline-none focus:ring-2 focus:ring-[#d4a936]"
+                                        className="flex items-center gap-2.5 rounded-xl bg-transparent px-1 py-1 text-left transition hover:bg-[#effaf4] focus:outline-none focus:ring-2 focus:ring-emerald-100"
                                     >
-                                        <span className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-[#d4a936] bg-[#033b2d] font-serif text-lg text-[#f2d46c]">
+                                        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-full border border-[#c6ead7] bg-gradient-to-br from-[#dff7eb] to-[#bdf0d4] text-xs font-extrabold text-[#07513c] shadow-[0_5px_14px_rgba(6,59,45,0.1)]">
                                             {initials(auth.user.name)}
                                         </span>
                                         <span className="hidden sm:block">
-                                            <span className="block max-w-44 truncate font-serif text-base font-semibold">
+                                            <span className="block max-w-36 truncate text-xs font-bold text-[#18322b]">
                                                 {auth.user.name}
                                             </span>
-                                            <span className="block max-w-44 truncate text-xs text-stone-500">
+                                            <span className="mt-0.5 block max-w-36 truncate text-[10px] font-medium text-[#71837d]">
                                                 {auth.user.position ??
                                                     auth.roles[0] ??
                                                     'Authorized user'}
@@ -337,7 +345,6 @@ export default function AuthenticatedLayout({
                     </div>
                 </header>
 
-                {header}
                 <main>{children}</main>
             </div>
 
