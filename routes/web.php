@@ -2,6 +2,10 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Models\Department;
+use App\Models\Document;
+use App\Models\Folder;
+use App\Models\User;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\FolderManagementController;
 use App\Http\Controllers\SubsidiaryController;
@@ -11,15 +15,29 @@ use App\Http\Controllers\UserRoleController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\SystemSettingsController;
 use Illuminate\Foundation\Application;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
+    $now = now();
+
     return Inertia::render('Welcome', [
         'canLogin' => Route::has('login'),
         'canRegister' => false,
         'laravelVersion' => Application::VERSION,
         'phpVersion' => PHP_VERSION,
+        'landingStats' => [
+            'documents' => Document::query()->count(),
+            'folders' => Folder::query()->count(),
+            'users' => User::query()->count(),
+            'departments' => Department::query()->count(),
+            'online' => DB::table('sessions')
+                ->whereNotNull('user_id')
+                ->where('last_activity', '>=', $now->copy()->subMinutes(15)->timestamp)
+                ->distinct()
+                ->count('user_id'),
+        ],
     ]);
 });
 

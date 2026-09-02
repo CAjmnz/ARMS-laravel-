@@ -75,7 +75,7 @@ export default function ArmsLogin({ status }: { status?: string }) {
                             {status}
                         </p>
                     )}
-                    <form onSubmit={submit} className="mt-8">
+                    <form onSubmit={submit} className="mt-8" autoComplete="off">
                         <label
                             htmlFor="employee_id"
                             className="text-sm font-semibold"
@@ -85,7 +85,7 @@ export default function ArmsLogin({ status }: { status?: string }) {
                         <input
                             id="employee_id"
                             autoFocus
-                            autoComplete="username"
+                            autoComplete="off"
                             value={data.employee_id}
                             onChange={(e) =>
                                 setData("employee_id", e.target.value)
@@ -107,7 +107,7 @@ export default function ArmsLogin({ status }: { status?: string }) {
                             <input
                                 id="password"
                                 type={visible ? "text" : "password"}
-                                autoComplete="current-password"
+                                autoComplete="new-password"
                                 value={data.password}
                                 onChange={(e) =>
                                     setData("password", e.target.value)
