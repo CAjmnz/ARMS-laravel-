@@ -105,7 +105,7 @@ class UserPinTest extends TestCase
         [$root, $document] = $this->records();
         $user = $this->superUser();
         $parent = $root;
-        for ($depth = 1; $depth <= 10; $depth++) {
+        for ($depth = 1; $depth <= 12; $depth++) {
             $parent = Folder::query()->create([
                 'parent_id' => $parent->id,
                 'subsidiary_id' => $root->subsidiary_id,
@@ -129,6 +129,12 @@ class UserPinTest extends TestCase
             ->where('pinnedSearch.data.0.is_pinned', true)
             ->where('pinnedSearch.data.1.is_pinned', true)
             ->where('pinnedSearch.data.2.is_pinned', true));
+
+        $this->actingAs($user)->getJson(route('documents.pins.index', ['search' => 'Subfolder 12', 'type' => 'subfolders']))
+            ->assertOk()
+            ->assertJsonCount(1, 'items')
+            ->assertJsonPath('items.0.type', 'Subfolder12')
+            ->assertJsonPath('items.0.name', 'Subfolder 12');
 
         $this->actingAs($user)->get(route('documents.manage', ['search' => 'pin audit']))->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('pinnedSearchMode', true)

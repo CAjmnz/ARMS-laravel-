@@ -7,9 +7,11 @@ use App\Models\Document;
 use App\Models\Folder;
 use App\Models\User;
 use App\Services\DocumentAccessService;
+use App\Services\DocumentInformationService;
 use App\Services\DocumentUploadService;
 use App\Services\FolderHierarchyService;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
@@ -17,6 +19,13 @@ use Inertia\Response;
 
 class DocumentController extends Controller
 {
+    public function information(Request $request, Document $document, DocumentInformationService $information): JsonResponse
+    {
+        $this->authorize('view', $document);
+
+        return response()->json($information->document($document));
+    }
+
     public function files(Request $request, Folder $folder, FolderHierarchyService $hierarchy, DocumentAccessService $access): Response
     {
         $this->authorize('view', $folder);

@@ -65,6 +65,8 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::delete('/documents/bulk-delete', [FolderManagementController::class, 'bulkDelete'])->name('documents.bulk-delete');
     Route::post('/documents/folders/{folder}/upload', [DocumentController::class, 'upload'])->name('documents.upload');
     Route::get('/documents/manage/{folder}/files', [DocumentController::class, 'files'])->name('documents.files.index');
+    Route::get('/documents/folders/{folder}/information', [FolderManagementController::class, 'information'])->name('documents.folders.information');
+    Route::get('/documents/{document}/information', [DocumentController::class, 'information'])->name('documents.information');
     Route::get('/documents/pins', [UserPinController::class, 'index'])->name('documents.pins.index');
     Route::patch('/documents/folders/{folder}/pin', [UserPinController::class, 'folder'])->name('documents.folders.pin');
     Route::patch('/documents/{document}/pin', [UserPinController::class, 'document'])->name('documents.pin');

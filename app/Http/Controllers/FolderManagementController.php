@@ -8,10 +8,12 @@ use App\Models\Folder;
 use App\Models\Subsidiary;
 use App\Models\User;
 use App\Services\DocumentAccessService;
+use App\Services\DocumentInformationService;
 use App\Services\FolderHierarchyService;
 use App\Services\PinnedItemsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -76,6 +78,7 @@ class FolderManagementController extends Controller
                 'can_unpublish' => $user->can('unpublish', $item),
                 'rename_url' => $user->can('update', $item) ? route('documents.folders.rename', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.folders.destroy', $item) : null,
+                'information_url' => route('documents.folders.information', $item),
             ]);
 
 
@@ -110,6 +113,7 @@ class FolderManagementController extends Controller
                 'update_url' => $user->can('update', $item) ? route('documents.update', $item) : null,
                 'move_url' => $user->can('move', $item) ? route('documents.move', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.destroy', $item) : null,
+                'information_url' => route('documents.information', $item),
             ]) : collect();
 
         return Inertia::render('Documents/Manage', [
@@ -161,6 +165,13 @@ class FolderManagementController extends Controller
                 ? Subsidiary::query()->with('departments:id,subsidiary_id,name')->orderBy('name')->get(['id', 'name'])
                 : [],
         ]);
+    }
+
+    public function information(Request $request, Folder $folder, DocumentInformationService $information): JsonResponse
+    {
+        $this->authorize('view', $folder);
+
+        return response()->json($information->folder($folder));
     }
 
     public function store(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse

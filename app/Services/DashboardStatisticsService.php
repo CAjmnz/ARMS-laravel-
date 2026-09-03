@@ -33,7 +33,7 @@ class DashboardStatisticsService
             ],
             'activity' => $this->activity($now),
             'recentActivities' => $this->recentActivities(),
-            'pinnedItems' => $this->pins->top($user, 5)->values(),
+            'pinnedItems' => $this->pins->top($user, 3)->values(),
             'topCategories' => $this->topCategories(),
             'storageBytes' => (int) DB::table('document_versions')->sum('size_bytes'),
             'memberRoles' => $this->memberRoles(),

@@ -11,7 +11,7 @@ interface ActivityPoint {
     uploads: number;
 }
 interface AccountDetails { department:string|null; employeeId:string; lastLoginAt:string|null; name:string; position:string|null; subsidiary:string|null }
-interface PinnedItem { pin_id:number; kind:'folder'|'document'; type:string; id:number; route_key:string; name:string; path:string; updated_at?:string|null; href:string; is_pinned:boolean }
+interface PinnedItem { pin_id:number; kind:'folder'|'document'; type:string; file_type?:string; id:number; route_key:string; name:string; path:string; updated_at?:string|null; href:string; is_pinned:boolean }
 interface DashboardProps { account:AccountDetails; activity:ActivityPoint[]; greeting:string; lastLoginAt:string|null; summary:DashboardSummary; recentActivities:RecentActivityItem[]; pinnedItems:PinnedItem[]; topCategories:CategoryItem[]; storageBytes:number; memberRoles:MemberRoleItem[] }
 
 function formatDateTime(value:string|null):string {
@@ -82,12 +82,17 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
                 <DashboardPanel title="Quick Access"><QuickAccess actions={quickActions} /></DashboardPanel>
                 <DashboardPanel title="Pinned Items" action={<Link href={route('documents.manage') + '?search=pin'} className="text-xs font-semibold text-arms-green hover:text-arms-dark">View all</Link>}>
                     {pinnedItems.length ? <div className="divide-y divide-stone-100">
-                        {pinnedItems.map((item)=><Link key={item.pin_id} href={item.href} className="flex items-center gap-3 px-1 py-3 transition hover:bg-emerald-50/60">
-                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-arms-green"><ArmsIcon name={item.kind === 'folder' ? 'folder' : 'document'} className="h-4 w-4" /></span>
-                            <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-[#073d2f]">{item.name}</span><span className="block truncate text-[11px] text-stone-400">{item.type} · {item.path}</span></span>
-                            <ArmsIcon name="pin" className="h-4 w-4 shrink-0 text-red-500" />
+                        {pinnedItems.slice(0, 3).map((item)=><Link key={item.pin_id} href={item.href} className="flex items-start gap-3 px-1 py-2.5 transition hover:bg-emerald-50/60">
+                            <span className="relative mt-0.5 grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-emerald-50 text-arms-green">
+                                {item.kind === 'folder' ? <ArmsIcon name="folder" className="h-4 w-4" /> : <span className="text-[9px] font-extrabold leading-none tracking-tight text-arms-green">{(item.file_type || 'FILE').slice(0, 4)}</span>}
+                                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm"><ArmsIcon name="pin" className="h-3 w-3 fill-current text-red-500" /></span>
+                            </span>
+                            <span className="min-w-0 flex-1">
+                                <span className="flex flex-wrap items-center gap-2"><span className="text-sm font-semibold leading-5 text-[#073d2f]">{item.name}</span><span className="rounded-md bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-700">{item.type}</span></span>
+                                <span className="mt-1 block whitespace-normal break-words text-[11px] leading-4 text-stone-500 [overflow-wrap:anywhere]">{item.path}</span>
+                            </span>
                         </Link>)}
-                    </div> : <div className="py-8 text-center text-sm text-stone-500"><ArmsIcon name="pin" className="mx-auto mb-2 h-6 w-6 text-stone-300" />No pinned items yet.</div>}
+                    </div> : <div className="px-4 py-7 text-center text-sm text-stone-500"><ArmsIcon name="pin" className="mx-auto mb-2 h-6 w-6 text-stone-300" /><p className="font-semibold text-[#073d2f]">No pinned items yet.</p><p className="mt-1 text-xs leading-5 text-stone-500">Pin a Filename, Subfolder, or Document from Document Management.</p></div>}
                 </DashboardPanel>
             </section>
 

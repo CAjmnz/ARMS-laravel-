@@ -16,7 +16,7 @@ class UserPinController extends Controller
     {
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:250'],
-            'type' => ['nullable', 'in:all,folders,documents'],
+            'type' => ['nullable', 'in:all,filenames,subfolders,folders,documents'],
             'limit' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
 

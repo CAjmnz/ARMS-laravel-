@@ -2,7 +2,7 @@ import ArmsIcon from '@/Components/ArmsIcon';
 import { Link } from '@inertiajs/react';
 import { useEffect, useRef, useState } from 'react';
 
-type PinType = 'all' | 'folders' | 'documents';
+type PinType = 'all' | 'filenames' | 'subfolders' | 'documents';
 
 interface PinnedItem {
     pin_id: number;
@@ -13,6 +13,7 @@ interface PinnedItem {
     name: string;
     path: string;
     href: string;
+    file_type?: string;
 }
 
 export default function PinnedItemsDropdown({ count }: { count: number }) {
@@ -60,6 +61,16 @@ export default function PinnedItemsDropdown({ count }: { count: number }) {
         return () => window.clearTimeout(timer);
     }, [open, search, type]);
 
+    const folderLevels = Array.from(new Set(items
+        .filter((item) => /^Subfolder\d+$/.test(item.type))
+        .map((item) => Number(item.type.replace('Subfolder', '')))
+        .filter((level) => Number.isFinite(level) && level > 0)))
+        .sort((left, right) => left - right);
+    const levelOrder = ['Filename', ...folderLevels.map((level) => `Subfolder${level}`), 'Document'];
+    const groupedItems = levelOrder
+        .map((label) => ({ label, items: items.filter((item) => item.type === label) }))
+        .filter((group) => group.items.length > 0);
+
     return <div ref={wrapper} className="relative min-w-[170px]">
         <button
             type="button"
@@ -89,23 +100,28 @@ export default function PinnedItemsDropdown({ count }: { count: number }) {
                         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search pinned items..." className="h-10 w-full rounded-xl border-stone-200 bg-stone-50 pl-9 pr-9 text-sm focus:border-arms-green focus:bg-white focus:ring-arms-green" />
                         {search && <button type="button" onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-700">×</button>}
                     </label>
-                    <div className="mt-3 flex gap-1 text-xs font-semibold">
-                        {([['all','All'],['folders','Folders'],['documents','Documents']] as [PinType,string][]).map(([value,label]) => <button key={value} type="button" onClick={() => setType(value)} className={'rounded-lg px-3 py-1.5 transition ' + (type === value ? 'bg-emerald-50 text-arms-green' : 'text-stone-500 hover:bg-stone-50')}>{label}</button>)}
+                    <div className="mt-3 flex flex-wrap gap-1 text-xs font-semibold">
+                        {([['all','All'],['filenames','Filenames'],['subfolders','Subfolders'],['documents','Documents']] as [PinType,string][]).map(([value,label]) => <button key={value} type="button" onClick={() => setType(value)} className={'rounded-lg px-3 py-1.5 transition ' + (type === value ? 'bg-emerald-50 text-arms-green' : 'text-stone-500 hover:bg-stone-50')}>{label}</button>)}
                     </div>
                 </div>
-                <div className="max-h-80 overflow-y-auto p-2">
-                    {loading ? <div className="py-10 text-center text-sm text-stone-400">Loading pinned items…</div> : items.length ? items.map((item) => <Link key={item.pin_id} href={item.href} onClick={() => setOpen(false)} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition hover:bg-emerald-50">
-                        <span className="relative grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-emerald-50 text-arms-green">
-                            <ArmsIcon name={item.kind === 'folder' ? 'folder' : 'document'} className="h-4 w-4" />
-                            <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm" title="Pinned">
-                                <ArmsIcon name="pin" className="h-3 w-3 fill-current text-red-500" />
+                <div className="max-h-80 overflow-y-auto bg-white p-0">
+                    {loading ? <div className="py-10 text-center text-sm text-stone-400">Loading pinned items…</div> : groupedItems.length ? groupedItems.map((group) => <section key={group.label} className="last:mb-0">
+                        <div className="sticky top-0 z-10 bg-white px-4 py-1.5 text-xs font-bold text-[#1f2d26]">{group.label}</div>
+                        {group.items.map((item) => <Link key={item.pin_id} href={item.href} onClick={() => setOpen(false)} className="flex items-start gap-3 px-4 py-1.5 transition hover:bg-[#e8f1ff] hover:text-[#0b57d0] focus:bg-[#0b66d4] focus:text-white">
+                            <span className="relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-md bg-emerald-50 text-arms-green">
+                                {item.kind === 'folder'
+                                    ? <ArmsIcon name="folder" className="h-4 w-4" />
+                                    : <span className="text-[9px] font-extrabold leading-none tracking-tight text-arms-green">{(item.file_type || 'FILE').slice(0, 4)}</span>}
+                                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-white shadow-sm" title="Pinned">
+                                    <ArmsIcon name="pin" className="h-3 w-3 fill-current text-red-500" />
+                                </span>
                             </span>
-                        </span>
-                        <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-semibold text-[#073d2f]">{item.name}</span>
-                            <span className="block truncate text-[11px] text-stone-400">{item.type} · {item.path}</span>
-                        </span>
-                    </Link>) : <div className="py-10 text-center text-sm text-stone-400">No pinned items found.</div>}
+                            <span className="min-w-0 flex-1">
+                                <span className="block text-sm font-medium leading-5 text-[#26352f]">{item.name}</span>
+                                <span className="block whitespace-normal break-words text-xs leading-4 text-stone-600 [overflow-wrap:anywhere]">{item.path}</span>
+                            </span>
+                        </Link>)}
+                    </section>) : <div className="py-10 text-center text-sm text-stone-400">No pinned items found.</div>}
                 </div>
                 <div className="border-t border-stone-100 p-3 text-center"><Link href={route('documents.manage') + '?search=pin'} onClick={() => setOpen(false)} className="text-xs font-semibold text-arms-green hover:text-arms-dark">View all pinned items</Link></div>
             </div>
