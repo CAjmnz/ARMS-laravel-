@@ -93,6 +93,7 @@ class FolderManagementController extends Controller
                     'document_versions.document_id',
                     'document_versions.extension',
                     'document_versions.scan_status',
+                    'document_versions.watermark_path',
                 ]),
             ])
             ->orderByDesc('is_pinned')
@@ -107,7 +108,7 @@ class FolderManagementController extends Controller
                 'pin_url' => route('documents.pin', $item),
                 'status' => $item->latestVersion?->scan_status ?? $item->status,
                 'show_url' => route('documents.show', $item),
-                'viewer_url' => $item->latestVersion?->scan_status === 'ready' ? route('documents.viewer', $item) : null,
+                'viewer_url' => $item->latestVersion?->scan_status === 'ready' && filled($item->latestVersion?->watermark_path) ? route('documents.viewer', $item) : null,
                 'download_url' => $user->can('download', $item) ? route('documents.download', $item) : null,
                 'edit_url' => $user->can('update', $item) ? route('documents.edit', $item) : null,
                 'update_url' => $user->can('update', $item) ? route('documents.update', $item) : null,
@@ -171,7 +172,7 @@ class FolderManagementController extends Controller
     {
         $this->authorize('view', $folder);
 
-        return response()->json($information->folder($folder));
+        return response()->json($information->folder($folder, $request->user()));
     }
 
     public function store(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse

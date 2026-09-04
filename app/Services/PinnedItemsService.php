@@ -65,6 +65,7 @@ class PinnedItemsService
                 'folder.subsidiary:id,name',
                 'folder.department:id,name',
                 'document:id,folder_id,title,updated_at',
+                'document.latestVersion',
                 'document.folder:id,parent_id,subsidiary_id,department_id,name,depth,legacy_path,updated_at',
                 'document.folder.subsidiary:id,name',
                 'document.folder.department:id,name',
@@ -141,6 +142,7 @@ class PinnedItemsService
                 'path' => $path,
                 'updated_at' => $folder->updated_at?->toIso8601String(),
                 'href' => route('documents.manage', $folder),
+                'information_url' => route('documents.folders.information', $folder),
                 'is_pinned' => true,
             ];
         }
@@ -173,7 +175,14 @@ class PinnedItemsService
                 ? $this->folderPath($document->folder).' / '.$document->title
                 : $document->title,
             'updated_at' => $document->updated_at?->toIso8601String(),
-            'href' => route('documents.show', $document),
+            'opens_viewer' => false,
+            'href' => $document->folder
+                ? route('documents.manage', [
+                    'folder' => $document->folder,
+                    'open_document' => $document->getRouteKey(),
+                ])
+                : route('documents.show', $document),
+            'information_url' => route('documents.information', $document),
             'is_pinned' => true,
         ];
     }

@@ -4,6 +4,7 @@ namespace Tests\Feature\Documents;
 
 use App\Models\Department;
 use App\Models\Document;
+use App\Models\DocumentVersion;
 use App\Models\Folder;
 use App\Models\Role;
 use App\Models\Subsidiary;
@@ -156,6 +157,43 @@ class UserPinTest extends TestCase
         $this->actingAs($user)->get(route('documents.manage', ['search' => 'pin']))->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('pinnedSearchMode', true)
             ->where('pinnedSearch.total', 0));
+    }
+
+    public function test_pinned_document_opens_its_folder_with_the_document_selected_for_the_view_modal(): void
+    {
+        [$folder, $document] = $this->records();
+        $user = $this->superUser();
+        UserPin::query()->create(['user_id' => $user->id, 'document_id' => $document->id]);
+
+        $fallbackResponse = $this->actingAs($user)->getJson(route('documents.pins.index', ['type' => 'documents']))
+            ->assertOk()
+            ->assertJsonPath('items.0.opens_viewer', false);
+        $fallbackHref = (string) $fallbackResponse->json('items.0.href');
+        $this->assertStringContainsString('/documents/manage/', $fallbackHref);
+        $this->assertStringContainsString('open_document=', $fallbackHref);
+
+        DocumentVersion::query()->create([
+            'document_id' => $document->id,
+            'version_number' => 1,
+            'original_filename' => 'Pinned Document.pdf',
+            'storage_disk' => 'documents',
+            'storage_path' => 'tests/pinned-document.pdf',
+            'watermark_path' => 'tests/pinned-document-watermarked.pdf',
+            'mime_type' => 'application/pdf',
+            'extension' => 'pdf',
+            'size_bytes' => 128,
+            'sha256' => str_repeat('a', 64),
+            'scan_status' => 'ready',
+            'uploaded_by' => $user->id,
+        ]);
+
+        $viewerResponse = $this->actingAs($user)->getJson(route('documents.pins.index', ['type' => 'documents']))
+            ->assertOk()
+            ->assertJsonPath('items.0.opens_viewer', false);
+        $viewerHref = (string) $viewerResponse->json('items.0.href');
+        $this->assertStringContainsString('/documents/manage/', $viewerHref);
+        $this->assertStringContainsString('open_document=', $viewerHref);
+        $this->assertFalse(str_ends_with($viewerHref, '/viewer'));
     }
 
     public function test_pinned_dropdown_endpoint_is_scoped_and_searchable(): void

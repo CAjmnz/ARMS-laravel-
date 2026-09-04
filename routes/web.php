@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentAccessManagementController;
 use App\Http\Controllers\DocumentController;
 use App\Models\Department;
 use App\Models\Document;
@@ -67,6 +68,11 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/documents/manage/{folder}/files', [DocumentController::class, 'files'])->name('documents.files.index');
     Route::get('/documents/folders/{folder}/information', [FolderManagementController::class, 'information'])->name('documents.folders.information');
     Route::get('/documents/{document}/information', [DocumentController::class, 'information'])->name('documents.information');
+    Route::get('/documents/access/users', [DocumentAccessManagementController::class, 'users'])->name('documents.access.users');
+    Route::post('/documents/folders/{folder}/access', [DocumentAccessManagementController::class, 'grantFolder'])->name('documents.folders.access.grant');
+    Route::delete('/documents/folders/{folder}/access/{user}', [DocumentAccessManagementController::class, 'removeFolder'])->name('documents.folders.access.remove');
+    Route::post('/documents/{document}/access', [DocumentAccessManagementController::class, 'grantDocument'])->name('documents.access.grant');
+    Route::delete('/documents/{document}/access/{user}', [DocumentAccessManagementController::class, 'removeDocument'])->name('documents.access.remove');
     Route::get('/documents/pins', [UserPinController::class, 'index'])->name('documents.pins.index');
     Route::patch('/documents/folders/{folder}/pin', [UserPinController::class, 'folder'])->name('documents.folders.pin');
     Route::patch('/documents/{document}/pin', [UserPinController::class, 'document'])->name('documents.pin');

@@ -7,11 +7,12 @@ use App\Models\Document;
 use App\Models\DocumentAccess;
 use App\Models\Folder;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 class DocumentInformationService
 {
-    public function folder(Folder $folder): array
+    public function folder(Folder $folder, User $viewer): array
     {
         $folder->loadMissing(['creator:id,name,email,position', 'subsidiary:id,name', 'department:id,name']);
         $folder->loadCount(['children', 'documents']);
@@ -31,12 +32,16 @@ class DocumentInformationService
             'children_count' => (int) $folder->children_count,
             'documents_count' => (int) $folder->documents_count,
             'preview_url' => null,
-            'activity' => $this->activity(Folder::class, $folder->id),
+            'activity' => $this->folderActivity($folder),
             'access' => $this->accessForFolder($folder),
+            'can_manage_access' => $viewer->hasPermission('users.manage'),
+            'access_user_search_url' => $viewer->hasPermission('users.manage') ? route('documents.access.users') : null,
+            'access_grant_url' => $viewer->hasPermission('users.manage') ? route('documents.folders.access.grant', $folder) : null,
+            'access_remove_base_url' => $viewer->hasPermission('users.manage') ? route('documents.folders.access.remove', [$folder, '__USER__']) : null,
         ];
     }
 
-    public function document(Document $document): array
+    public function document(Document $document, User $viewer): array
     {
         $document->loadMissing(['creator:id,name,email,position', 'folder', 'latestVersion.uploader:id,name,email,position']);
         $version = $document->latestVersion;
@@ -59,9 +64,75 @@ class DocumentInformationService
             'children_count' => null,
             'documents_count' => null,
             'preview_url' => $version?->scan_status === 'ready' ? route('documents.viewer', $document) : null,
-            'activity' => $this->activity(Document::class, $document->id),
+            'activity' => $this->activityQuery()->where('auditable_type', Document::class)->where('auditable_id', $document->id)->limit(100)->get()->map(fn (ActivityLog $log) => $this->activityPayload($log))->values()->all(),
             'access' => $this->accessForDocument($document),
+            'can_manage_access' => $viewer->hasPermission('users.manage'),
+            'access_user_search_url' => $viewer->hasPermission('users.manage') ? route('documents.access.users') : null,
+            'access_grant_url' => $viewer->hasPermission('users.manage') ? route('documents.access.grant', $document) : null,
+            'access_remove_base_url' => $viewer->hasPermission('users.manage') ? route('documents.access.remove', [$document, '__USER__']) : null,
         ];
+    }
+
+    /** @return array<int, array<string,mixed>> */
+    private function folderActivity(Folder $folder): array
+    {
+        $folderIds = $this->descendantFolderIds($folder);
+        $documentIds = Document::query()->whereIn('folder_id', $folderIds)->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        return $this->activityQuery()
+            ->where(function (Builder $query) use ($folderIds, $documentIds) {
+                $query->where(function (Builder $folders) use ($folderIds) {
+                    $folders->where('auditable_type', Folder::class)->whereIn('auditable_id', $folderIds);
+                });
+                if ($documentIds !== []) {
+                    $query->orWhere(function (Builder $documents) use ($documentIds) {
+                        $documents->where('auditable_type', Document::class)->whereIn('auditable_id', $documentIds);
+                    });
+                }
+            })
+            ->limit(100)
+            ->get()
+            ->map(fn (ActivityLog $log) => $this->activityPayload($log))
+            ->values()->all();
+    }
+
+    private function activityQuery(): Builder
+    {
+        return ActivityLog::query()->with('user:id,name,email,position')->latest('created_at');
+    }
+
+    private function activityPayload(ActivityLog $log): array
+    {
+        $values = array_merge($log->old_values ?? [], $log->new_values ?? []);
+        return [
+            'id' => $log->id,
+            'event' => $log->event,
+            'description' => $log->description ?: str_replace(['.', '_'], ' ', $log->event),
+            'created_at' => $log->created_at?->toIso8601String(),
+            'actor' => $this->person($log->user),
+            'item_name' => $values['item_name'] ?? $values['name'] ?? null,
+            'parent_name' => $values['parent_name'] ?? null,
+            'path' => is_array($values['path'] ?? null) ? $values['path'] : null,
+            'target_user_name' => $values['target_user_name'] ?? null,
+            'old_name' => $log->old_values['name'] ?? $log->old_values['item_name'] ?? null,
+            'new_name' => $log->new_values['name'] ?? $log->new_values['item_name'] ?? null,
+        ];
+    }
+
+    /** @return array<int> */
+    private function descendantFolderIds(Folder $folder): array
+    {
+        $folders = Folder::query()->get(['id', 'parent_id']);
+        $children = $folders->groupBy(fn (Folder $item) => $item->parent_id ?? 0);
+        $ids = [];
+        $stack = [(int) $folder->id];
+        while ($stack !== []) {
+            $id = (int) array_pop($stack);
+            if (isset($ids[$id])) continue;
+            $ids[$id] = true;
+            foreach ($children->get($id, collect()) as $child) $stack[] = (int) $child->id;
+        }
+        return array_map('intval', array_keys($ids));
     }
 
     private function folderPath(?Folder $folder): array
@@ -78,71 +149,72 @@ class DocumentInformationService
         return $path;
     }
 
-    private function activity(string $type, int $id): array
+    private function ancestorFolderIds(?Folder $folder): array
     {
-        return ActivityLog::query()
-            ->where('auditable_type', $type)
-            ->where('auditable_id', $id)
-            ->with('user:id,name,email,position')
-            ->latest('created_at')
-            ->limit(50)
-            ->get()
-            ->map(fn (ActivityLog $log) => [
-                'id' => $log->id,
-                'event' => $log->event,
-                'description' => $log->description ?: str_replace(['.', '_'], ' ', $log->event),
-                'created_at' => $log->created_at?->toIso8601String(),
-                'actor' => $this->person($log->user),
-            ])->values()->all();
+        $ids = [];
+        $current = $folder;
+        while ($current && ! in_array((int) $current->id, $ids, true)) {
+            $ids[] = (int) $current->id;
+            $current = $current->parent_id ? Folder::query()->find($current->parent_id) : null;
+        }
+        return $ids;
     }
 
     private function accessForFolder(Folder $folder): array
     {
-        return $this->accessRows(
-            DocumentAccess::query()->where('folder_id', $folder->id)->where('can_view', true)->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get(),
-            'Direct folder access'
-        );
+        $folderIds = $this->ancestorFolderIds($folder);
+        $grants = DocumentAccess::query()
+            ->whereIn('folder_id', $folderIds)
+            ->where('can_view', true)
+            ->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->get();
+
+        return $this->accessRows($grants, fn ($grant) => (int) $grant->folder_id === (int) $folder->id ? 'Direct folder access' : 'Parent-folder access');
     }
 
     private function accessForDocument(Document $document): array
     {
-        $direct = $this->accessRows(
-            DocumentAccess::query()->where('document_id', $document->id)->where('can_view', true)->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get(),
-            'Direct document access'
-        );
-        $folderIds = [];
-        $current = $document->folder;
-        while ($current) {
-            $folderIds[] = $current->id;
-            $current = $current->parent_id ? Folder::query()->find($current->parent_id) : null;
-        }
-        $inherited = $this->accessRows(
-            DocumentAccess::query()->whereIn('folder_id', $folderIds)->where('can_view', true)->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get(),
-            'Folder access'
-        );
-        return collect(array_merge($direct, $inherited))->unique(fn ($row) => ($row['user']['id'] ?? 'none').':'.$row['source'])->values()->all();
+        $direct = DocumentAccess::query()->where('document_id', $document->id)->where('can_view', true)->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get();
+        $inherited = DocumentAccess::query()->whereIn('folder_id', $this->ancestorFolderIds($document->folder))->where('can_view', true)->where(fn ($q) => $q->whereNull('expires_at')->orWhere('expires_at', '>', now()))->get();
+
+        return collect(array_merge(
+            $this->accessRows($direct, fn () => 'Direct document access'),
+            $this->accessRows($inherited, fn () => 'Folder access')
+        ))->unique(fn ($row) => ($row['user']['id'] ?? 'none').':'.$row['source'])->values()->all();
     }
 
-    private function accessRows(Collection $grants, string $source): array
+    private function accessRows(Collection $grants, callable $source): array
     {
         $userIds = $grants->pluck('user_id')->filter()->unique()->values();
+        $managerIds = $grants->pluck('granted_by')->filter()->unique()->values();
         $users = User::query()->with(['roles:id,name,slug', 'department:id,name'])->whereIn('id', $userIds)->get()->keyBy('id');
-        return $grants->filter(fn ($grant) => $grant->user_id && $users->has($grant->user_id))->map(function ($grant) use ($users, $source) {
+        $managers = User::query()->whereIn('id', $managerIds)->get(['id','name','email','position'])->keyBy('id');
+
+        return $grants->filter(fn ($grant) => $grant->user_id && $users->has($grant->user_id))->map(function ($grant) use ($users, $managers, $source) {
             $user = $users->get($grant->user_id);
             return [
                 'user' => $this->person($user),
                 'role' => $user->roles->pluck('name')->filter()->join(', ') ?: 'User',
                 'department' => $user->department?->name,
-                'source' => $source,
+                'source' => $source($grant),
                 'can_download' => (bool) $grant->can_download,
                 'can_upload' => (bool) $grant->can_upload,
+                'granted_by' => $this->person($managers->get($grant->granted_by)),
+                'granted_at' => $grant->created_at?->toIso8601String(),
             ];
         })->values()->all();
     }
 
     private function lastActor(string $type, int $id): ?array
     {
-        $log = ActivityLog::query()->where('auditable_type', $type)->where('auditable_id', $id)->whereNotNull('user_id')->latest('created_at')->with('user:id,name,email,position')->first();
+        $log = ActivityLog::query()
+            ->where('auditable_type', $type)
+            ->where('auditable_id', $id)
+            ->whereNotNull('user_id')
+            ->whereNotIn('event', ['pin.created', 'pin.removed', 'access.granted', 'access.removed', 'document.viewed', 'document.viewer_downloaded', 'document.original_downloaded'])
+            ->latest('created_at')
+            ->with('user:id,name,email,position')
+            ->first();
         return $this->person($log?->user);
     }
 

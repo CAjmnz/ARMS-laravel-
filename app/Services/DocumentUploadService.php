@@ -167,15 +167,38 @@ class DocumentUploadService
 
     private function audit(User $actor, string $event, Document $document, array $values, array $context): void
     {
+        $document->loadMissing('folder');
+        $path = $this->folderPath($document->folder);
+        $description = $event === 'document.uploaded'
+            ? 'Uploaded document "'.$document->title.'"'.($path ? ' inside '.implode(' / ', $path) : '').'.'
+            : 'Updated document "'.$document->title.'".';
+
         ActivityLog::query()->create([
             'user_id' => $actor->id,
             'event' => $event,
             'auditable_type' => Document::class,
             'auditable_id' => $document->id,
-            'description' => 'Document action for '.$document->title.'.',
-            'new_values' => $values,
+            'description' => $description,
+            'new_values' => array_merge($values, [
+                'item_name' => $document->title,
+                'parent_folder_id' => $document->folder_id,
+                'parent_name' => $document->folder?->name,
+                'path' => array_merge($path, [$document->title]),
+            ]),
             'ip_address' => $context['ip_address'] ?? null,
             'user_agent' => $context['user_agent'] ?? null,
         ]);
+    }
+
+    private function folderPath(?Folder $folder): array
+    {
+        $path = [];
+        $visited = [];
+        while ($folder && ! isset($visited[$folder->id])) {
+            $visited[$folder->id] = true;
+            array_unshift($path, $folder->name);
+            $folder = $folder->parent_id ? Folder::query()->find($folder->parent_id) : null;
+        }
+        return $path;
     }
 }

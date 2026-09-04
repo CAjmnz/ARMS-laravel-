@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\UserPin;
@@ -41,6 +42,7 @@ class UserPinController extends Controller
 
         if ($pin) {
             $pin->delete();
+            $this->audit($request, 'pin.removed', Folder::class, $folder->id, 'Unpinned folder "'.$folder->name.'".', $folder->name);
             return back()->with('success', 'Folder unpinned.');
         }
 
@@ -48,6 +50,7 @@ class UserPinController extends Controller
             'user_id' => $request->user()->id,
             'folder_id' => $folder->id,
         ]);
+        $this->audit($request, 'pin.created', Folder::class, $folder->id, 'Pinned folder "'.$folder->name.'".', $folder->name);
 
         return back()->with('success', 'Folder pinned.');
     }
@@ -63,6 +66,7 @@ class UserPinController extends Controller
 
         if ($pin) {
             $pin->delete();
+            $this->audit($request, 'pin.removed', Document::class, $document->id, 'Unpinned document "'.$document->title.'".', $document->title);
             return back()->with('success', 'Document unpinned.');
         }
 
@@ -70,7 +74,22 @@ class UserPinController extends Controller
             'user_id' => $request->user()->id,
             'document_id' => $document->id,
         ]);
+        $this->audit($request, 'pin.created', Document::class, $document->id, 'Pinned document "'.$document->title.'".', $document->title);
 
         return back()->with('success', 'Document pinned.');
+    }
+
+    private function audit(Request $request, string $event, string $type, int $id, string $description, string $itemName): void
+    {
+        ActivityLog::query()->create([
+            'user_id' => $request->user()->id,
+            'event' => $event,
+            'auditable_type' => $type,
+            'auditable_id' => $id,
+            'description' => $description,
+            'new_values' => ['item_name' => $itemName],
+            'ip_address' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+        ]);
     }
 }

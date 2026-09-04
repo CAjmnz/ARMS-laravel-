@@ -23,7 +23,7 @@ class DocumentController extends Controller
     {
         $this->authorize('view', $document);
 
-        return response()->json($information->document($document));
+        return response()->json($information->document($document, $request->user()));
     }
 
     public function files(Request $request, Folder $folder, FolderHierarchyService $hierarchy, DocumentAccessService $access): Response
@@ -215,6 +215,7 @@ class DocumentController extends Controller
         $version = $document->latestVersion;
         abort_unless($version && $version->scan_status === 'ready' && $version->watermark_path, 409, 'The protected viewer is not ready.');
 
+        $this->audit($request, 'document.viewed', $document);
         return $this->stream($version->storage_disk, $version->watermark_path, $version->mime_type, false, $document->title);
     }
 
@@ -300,6 +301,55 @@ class DocumentController extends Controller
 
     private function audit(Request $request, string $event, Document $document, ?array $old = null, ?array $new = null): void
     {
-        ActivityLog::query()->create(['user_id' => $request->user()->id, 'event' => $event, 'auditable_type' => Document::class, 'auditable_id' => $document->id, 'description' => 'Document action for '.$document->title.'.', 'old_values' => $old, 'new_values' => $new, 'ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()]);
+        $document->loadMissing('folder');
+        $currentPath = $this->folderPath($document->folder);
+        $oldFolder = isset($old['folder_id']) ? Folder::query()->find($old['folder_id']) : null;
+        $oldPath = $oldFolder ? $this->folderPath($oldFolder) : null;
+        $description = match ($event) {
+            'document.updated' => ($old['title'] ?? $document->title) !== $document->title
+                ? 'Renamed document "'.($old['title'] ?? $document->title).'" to "'.$document->title.'".'
+                : 'Updated document "'.$document->title.'".',
+            'document.moved' => 'Moved document "'.$document->title.'"'.($oldPath ? ' from '.implode(' / ', $oldPath) : '').($currentPath ? ' to '.implode(' / ', $currentPath) : '').'.',
+            'document.deleted' => 'Deleted document "'.$document->title.'".',
+            'document.viewer_downloaded' => 'Downloaded viewer copy of "'.$document->title.'".',
+            'document.original_downloaded' => 'Downloaded original file "'.$document->title.'".',
+            'document.viewed' => 'Viewed document "'.$document->title.'".',
+            default => 'Updated document "'.$document->title.'".',
+        };
+
+        $oldValues = $old ? array_merge($old, [
+            'item_name' => $old['title'] ?? $document->title,
+            'path' => $oldPath ? array_merge($oldPath, [$old['title'] ?? $document->title]) : null,
+        ]) : null;
+        $newValues = array_merge($new ?? [], [
+            'item_name' => $document->title,
+            'parent_folder_id' => $document->folder_id,
+            'parent_name' => $document->folder?->name,
+            'path' => array_merge($currentPath, [$document->title]),
+        ]);
+
+        ActivityLog::query()->create([
+            'user_id' => $request->user()->id,
+            'event' => $event,
+            'auditable_type' => Document::class,
+            'auditable_id' => $document->id,
+            'description' => $description,
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
+            'ip_address' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+        ]);
+    }
+
+    private function folderPath(?Folder $folder): array
+    {
+        $path = [];
+        $visited = [];
+        while ($folder && ! isset($visited[$folder->id])) {
+            $visited[$folder->id] = true;
+            array_unshift($path, $folder->name);
+            $folder = $folder->parent_id ? Folder::query()->find($folder->parent_id) : null;
+        }
+        return $path;
     }
 }

@@ -197,16 +197,42 @@ class FolderHierarchyService
 
     private function audit(User $actor, string $event, Folder $folder, ?array $old, ?array $new, array $context): void
     {
+        $path = $this->logicalPath($folder);
+        $parentName = count($path) > 1 ? $path[count($path) - 2] : null;
+        $description = match ($event) {
+            'folder.root_created' => 'Created filename "'.$folder->name.'".',
+            'folder.created' => 'Created subfolder "'.$folder->name.'"'.($parentName ? ' inside '.implode(' / ', array_slice($path, 0, -1)) : '').'.',
+            'folder.renamed' => 'Renamed folder "'.($old['name'] ?? $folder->name).'" to "'.$folder->name.'".',
+            'folder.deleted' => 'Deleted folder "'.$folder->name.'".',
+            'folder.published' => 'Published folder "'.$folder->name.'".',
+            'folder.unpublished' => 'Unpublished folder "'.$folder->name.'".',
+            default => 'Updated folder "'.$folder->name.'".',
+        };
+
+        $oldValues = $old ? array_merge($old, ['item_name' => $old['name'] ?? $folder->name]) : null;
+        $newValues = array_merge($new ?? [], [
+            'item_name' => $folder->name,
+            'parent_folder_id' => $folder->parent_id,
+            'parent_name' => $parentName,
+            'path' => $path,
+            'depth' => $folder->depth,
+        ]);
+
         ActivityLog::query()->create([
             'user_id' => $actor->id,
             'event' => $event,
             'auditable_type' => Folder::class,
             'auditable_id' => $folder->id,
-            'description' => 'Folder hierarchy action for '.$folder->name.'.',
-            'old_values' => $old,
-            'new_values' => $new,
+            'description' => $description,
+            'old_values' => $oldValues,
+            'new_values' => $newValues,
             'ip_address' => $context['ip_address'] ?? null,
             'user_agent' => $context['user_agent'] ?? null,
         ]);
+    }
+
+    private function logicalPath(Folder $folder): array
+    {
+        return array_map(fn (Folder $item) => $item->name, $this->breadcrumbs($folder));
     }
 }
