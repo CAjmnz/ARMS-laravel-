@@ -36,6 +36,34 @@ class DocumentUploadService
         return $results;
     }
 
+    public function uploadFolder(Folder $destination, array $files, array $relativePaths, User $actor, array $context, FolderHierarchyService $hierarchy, bool $preserveSourceRoot = true): array
+    {
+        if (! $actor->can('upload', $destination)) abort(403);
+        if (count($files) !== count($relativePaths)) throw ValidationException::withMessages(['folder_files' => 'The selected folder structure is incomplete.']);
+        $results = [];
+        foreach ($files as $index => $file) {
+            $created = [];
+            try {
+                $this->validateFile($file);
+                $segments = $this->relativePathSegments((string) $relativePaths[$index], $file->getClientOriginalName());
+                array_pop($segments);
+                if (! $preserveSourceRoot) array_shift($segments);
+                $parent = $destination;
+                foreach ($segments as $segment) {
+                    $child = Folder::query()->where('parent_id', $parent->id)->where('slug', Str::slug($segment))->first();
+                    if (! $child) { $child = $hierarchy->createChild($parent, $segment, $actor, $context); $created[] = $child; }
+                    $parent = $child;
+                }
+                $results[] = ['ok' => true, 'document' => $this->storeOne($parent, $file, null, $actor, $context)];
+            } catch (\Throwable $exception) {
+                foreach (array_reverse($created) as $folder) if (! $folder->children()->exists() && ! $folder->documents()->exists()) $folder->delete();
+                report($exception);
+                $results[] = ['ok' => false, 'name' => $file->getClientOriginalName(), 'error' => $exception instanceof ValidationException ? collect($exception->errors())->flatten()->first() : 'This file could not be uploaded safely.'];
+            }
+        }
+        return $results;
+    }
+
     private function storeOne(Folder $folder, UploadedFile $original, ?UploadedFile $viewer, User $actor, array $context): Document
     {
         $originalMeta = $this->validateFile($original);
@@ -107,6 +135,18 @@ class DocumentUploadService
             }
             throw $exception;
         }
+    }
+
+    private function relativePathSegments(string $path, string $originalName): array
+    {
+        $path = str_replace('\\\\', '/', trim($path));
+        if ($path === '' || str_starts_with($path, '/') || str_contains($path, '..') || str_contains($path, "\0")) throw ValidationException::withMessages(['folder_files' => 'The folder path is invalid.']);
+        $segments = array_values(array_filter(explode('/', $path), fn (string $segment) => $segment !== ''));
+        if (count($segments) < 2 || count($segments) > 51 || basename($path) !== $originalName) throw ValidationException::withMessages(['folder_files' => 'The folder structure is invalid.']);
+        foreach ($segments as $segment) {
+            if (mb_strlen($segment) > 250 || preg_match('/[\\x00-\\x1F\\x7F<>:"\\\\|?*]/u', $segment) || rtrim($segment, '. ') !== $segment || Str::slug($segment) === '') throw ValidationException::withMessages(['folder_files' => 'A folder name contains invalid path characters.']);
+        }
+        return $segments;
     }
 
     private function validateFile(UploadedFile $file): array

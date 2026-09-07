@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -207,6 +208,78 @@ class DocumentController extends Controller
         }
 
         return back()->with('upload_results', $results)->with('success', $message);
+    }
+
+    public function uploadFolder(Request $request, Folder $folder, DocumentUploadService $uploads, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $this->authorize('upload', $folder);
+        $request->validate([
+            'folder_files' => ['required', 'array', 'min:1', 'max:100'],
+            'folder_files.*' => ['file'],
+            'relative_paths' => ['required', 'array', 'size:'.count($request->file('folder_files', []))],
+            'relative_paths.*' => ['required', 'string', 'max:4000'],
+        ]);
+
+        $results = $uploads->uploadFolder(
+            $folder,
+            $request->file('folder_files', []),
+            $request->input('relative_paths', []),
+            $request->user(),
+            ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()],
+            $hierarchy,
+        );
+
+        $failed = collect($results)->where('ok', false);
+        $success = collect($results)->where('ok', true)->count();
+        if ($failed->isNotEmpty()) {
+            $details = $failed->map(fn (array $item) => ($item['name'] ?? 'File').': '.($item['error'] ?? 'Upload failed.'))->implode(' ');
+            return back()->with('upload_results', $results)->with('error', $success.' file(s) uploaded. '.$failed->count().' file(s) failed. '.$details)->withErrors(['folder_files' => $details]);
+        }
+
+        return back()->with('upload_results', $results)->with('success', $success.' file(s) uploaded with the selected folder structure.');
+    }
+
+    public function uploadFolderFromRoot(Request $request, DocumentUploadService $uploads, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $request->validate([
+            'folder_files' => ['required', 'array', 'min:1', 'max:100'],
+            'folder_files.*' => ['file'],
+            'relative_paths' => ['required', 'array', 'size:'.count($request->file('folder_files', []))],
+            'relative_paths.*' => ['required', 'string', 'max:4000'],
+        ]);
+
+        $roots = collect($request->input('relative_paths', []))->map(fn (string $path) => explode('/', str_replace('\\\\', '/', $path))[0] ?? '')->filter()->unique()->values();
+        if ($roots->count() !== 1) {
+            return back()->withErrors(['folder_files' => 'Select one folder only.']);
+        }
+
+        $rootName = $roots->first();
+        $folder = Folder::query()->whereNull('parent_id')->where('slug', Str::slug($rootName))->first();
+        if (! $folder) {
+            $template = Folder::query()->whereNotNull('subsidiary_id')->whereNotNull('department_id')->first();
+            if (! $template) {
+                return back()->withErrors(['folder_files' => 'A subsidiary and department are required before the first Filename can be created.']);
+            }
+
+            $folder = $hierarchy->createRoot(
+                $rootName,
+                $template->subsidiary_id,
+                $template->department_id,
+                $request->user(),
+                ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()],
+            );
+        }
+        $this->authorize('upload', $folder);
+
+        $results = $uploads->uploadFolder($folder, $request->file('folder_files', []), $request->input('relative_paths', []), $request->user(), ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()], $hierarchy, false);
+        $failed = collect($results)->where('ok', false);
+        $success = collect($results)->where('ok', true)->count();
+        if ($failed->isNotEmpty()) {
+            $details = $failed->map(fn (array $item) => ($item['name'] ?? 'File').': '.($item['error'] ?? 'Upload failed.'))->implode(' ');
+            return back()->with('upload_results', $results)->withErrors(['folder_files' => $details]);
+        }
+
+        return back()->with('upload_results', $results)->with('success', $success.' file(s) uploaded using the existing Filename structure.');
     }
 
     public function viewer(Request $request, Document $document)

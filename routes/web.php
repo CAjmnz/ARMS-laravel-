@@ -65,6 +65,8 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::patch('/documents/bulk-transfer', [DocumentController::class, 'bulkMove'])->name('documents.bulk-move');
     Route::delete('/documents/bulk-delete', [FolderManagementController::class, 'bulkDelete'])->name('documents.bulk-delete');
     Route::post('/documents/folders/{folder}/upload', [DocumentController::class, 'upload'])->name('documents.upload');
+    Route::post('/documents/folders/{folder}/upload-folder', [DocumentController::class, 'uploadFolder'])->name('documents.upload-folder');
+    Route::post('/documents/upload-folder', [DocumentController::class, 'uploadFolderFromRoot'])->name('documents.upload-folder-root');
     Route::get('/documents/manage/{folder}/files', [DocumentController::class, 'files'])->name('documents.files.index');
     Route::get('/documents/folders/{folder}/information', [FolderManagementController::class, 'information'])->name('documents.folders.information');
     Route::get('/documents/{document}/information', [DocumentController::class, 'information'])->name('documents.information');

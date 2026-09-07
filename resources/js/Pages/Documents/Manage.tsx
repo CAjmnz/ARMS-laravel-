@@ -76,6 +76,9 @@ export default function Manage({
     const [creating, setCreating] = useState(false);
     const [newOpen, setNewOpen] = useState(false);
     const [uploadOpen, setUploadOpen] = useState(false);
+    const [folderUploadOpen, setFolderUploadOpen] = useState(false);
+    const [inlineUploadOpen, setInlineUploadOpen] = useState(false);
+    const [inlineDragActive, setInlineDragActive] = useState(false);
     const [uploadFolderId, setUploadFolderId] = useState('');
     const [view, setView] = useState<'list' | 'grid'>('grid');
     const [viewingDocument, setViewingDocument] = useState<DocumentItem | null>(null);
@@ -88,6 +91,7 @@ export default function Manage({
     const [bulkDestinationId, setBulkDestinationId] = useState('');
     const form = useForm({ name: '', subsidiary_id: '', department_id: '' });
     const uploadForm = useForm({ original_files: [] as File[], viewer_files: [] as File[] });
+    const inlineUploadForm = useForm({ original_files: [] as File[], viewer_files: [] as File[] });
     const itemCount = folders.data.length + documents.length;
     const visibleKeys = useMemo(() => [...folders.data.map((item) => `folder:${item.id}`), ...documents.map((item) => `document:${item.id}`)], [folders.data, documents]);
     const selectedFolderIds = useMemo(() => Array.from(selectedItems).filter((key) => key.startsWith('folder:')).map((key) => Number(key.split(':')[1])), [selectedItems]);
@@ -262,6 +266,7 @@ export default function Manage({
                                 {isRoot && canCreateRoot && <button type="button" onClick={() => { setNewOpen(false); openCreate(); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">▣ Add new filename</button>}
                                 {!isRoot && currentFolder?.can_manage && <button type="button" onClick={() => { setNewOpen(false); openCreate(); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">▣ New folder</button>}
                                 {(currentFolder?.can_upload || (isRoot && canCreateRoot)) && <button type="button" onClick={() => { setNewOpen(false); setUploadOpen(true); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">⇧ Add new documents</button>}
+                                {(isRoot ? canCreateRoot : (!!currentFolder?.can_upload && currentFolder.depth === 0)) && <button type="button" onClick={() => { setNewOpen(false); setFolderUploadOpen(true); }} className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">▣ Upload folder</button>}
                             </div>}
                         </div>
                     )}
@@ -414,6 +419,8 @@ export default function Manage({
                 </div>
             )}
 
+            {folderUploadOpen && <FolderUploadModal currentFolder={currentFolder} breadcrumbs={breadcrumbs} onClose={() => setFolderUploadOpen(false)} />}
+
             {uploadOpen && (
                 <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4">
                     <form onSubmit={submitUpload} className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl">
@@ -509,6 +516,102 @@ export default function Manage({
             )}
         </AuthenticatedLayout>
     );
+}
+
+function FolderUploadModal({ currentFolder, breadcrumbs, onClose }: { currentFolder:Folder|null; breadcrumbs:Props['breadcrumbs']; onClose:()=>void }) {
+    const inputRef = useRef<HTMLInputElement>(null);
+    const form = useForm({ folder_files: [] as File[], relative_paths: [] as string[] });
+    const [uploading, setUploading] = useState(false);
+    const [uploadedCount, setUploadedCount] = useState(0);
+    const lockedDestination = currentFolder?.route_key ?? '';
+
+    useEffect(() => {
+        inputRef.current?.setAttribute('webkitdirectory', '');
+        inputRef.current?.setAttribute('directory', '');
+    }, []);
+
+    const selectFiles = (files: File[]) => {
+        const pairs = files.map((file) => ({ file, path: (file as File & { webkitRelativePath?: string }).webkitRelativePath || '' })).filter((item) => item.path);
+        form.setData('folder_files', pairs.map((item) => item.file));
+        form.setData('relative_paths', pairs.map((item) => item.path));
+        form.clearErrors();
+        if (files.length && !pairs.length) form.setError('folder_files', 'Choose a folder using the Choose folder button, or drag a folder from a supported browser.');
+    };
+
+    const dropFolder = async (event: DragEvent<HTMLDivElement>) => {
+        event.preventDefault();
+        const entries = Array.from(event.dataTransfer.items).map((item: any) => item.webkitGetAsEntry?.()).filter(Boolean);
+        if (!entries.length) return selectFiles(Array.from(event.dataTransfer.files));
+        const collected: { file: File; path: string }[] = [];
+        const walk = async (entry: any, parent = ''): Promise<void> => {
+            const path = parent ? parent + '/' + entry.name : entry.name;
+            if (entry.isFile) await new Promise<void>((resolve) => entry.file((file: File) => { collected.push({ file, path }); resolve(); }, resolve));
+            else if (entry.isDirectory) {
+                const reader = entry.createReader();
+                const readAll = async (): Promise<any[]> => new Promise((resolve) => reader.readEntries((items: any[]) => resolve(items)));
+                let children: any[] = []; let batch: any[];
+                do { batch = await readAll(); children = children.concat(batch); } while (batch.length);
+                await Promise.all(children.map((child) => walk(child, path)));
+            }
+        };
+        await Promise.all(entries.map((entry: any) => walk(entry)));
+        form.setData('folder_files', collected.map((item) => item.file));
+        form.setData('relative_paths', collected.map((item) => item.path));
+        form.clearErrors();
+    };
+
+    const directories = useMemo(() => Array.from(new Set(form.data.relative_paths.flatMap((path) => path.split('/').slice(0, -1).map((_, index, parts) => parts.slice(0, index + 1).join('/'))))), [form.data.relative_paths]);
+    const rootCount = new Set(form.data.relative_paths.map((path) => path.split('/')[0]).filter(Boolean)).size;
+    const submit = async (event: FormEvent) => {
+        event.preventDefault();
+        if (uploading || !form.data.folder_files.length) return;
+
+        const url = currentFolder ? route('documents.upload-folder', lockedDestination) : route('documents.upload-folder-root');
+        const total = form.data.folder_files.length;
+        const batchSize = 20;
+        setUploading(true);
+        setUploadedCount(0);
+        form.clearErrors();
+
+        try {
+            for (let start = 0; start < total; start += batchSize) {
+                const folderFiles = form.data.folder_files.slice(start, start + batchSize);
+                const relativePaths = form.data.relative_paths.slice(start, start + batchSize);
+
+                await new Promise<void>((resolve, reject) => {
+                    router.post(url, { folder_files: folderFiles, relative_paths: relativePaths }, {
+                        forceFormData: true,
+                        preserveScroll: true,
+                        onSuccess: () => resolve(),
+                        onError: (errors) => {
+                            form.setError(errors);
+                            reject(new Error('Folder upload failed.'));
+                        },
+                    });
+                });
+
+                setUploadedCount(Math.min(start + folderFiles.length, total));
+            }
+
+            form.reset();
+            onClose();
+        } finally {
+            setUploading(false);
+        }
+    };
+
+    return <div className="fixed inset-0 z-[60] grid place-items-center bg-[#012a21]/55 p-4" onMouseDown={(event) => event.target === event.currentTarget && !uploading && onClose()}>
+        <form onSubmit={submit} className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <header className="flex shrink-0 items-center justify-between border-b border-stone-100 px-6 py-5"><div><p className="text-xs font-bold uppercase tracking-wider text-[#b8860b]">Documents module · upload</p><h2 className="mt-1 text-2xl font-semibold text-[#073d2f]">Upload Folder</h2></div><button type="button" onClick={onClose} disabled={uploading} aria-label="Close upload folder" className="grid h-9 w-9 place-items-center rounded-lg border border-stone-200 text-xl text-stone-600 hover:bg-stone-50">×</button></header>
+            <div className="min-h-0 flex-1 overflow-y-auto p-6">
+                {currentFolder ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm"><span className="block text-xs font-semibold uppercase tracking-wide text-arms-green">Destination Path · Locked</span><strong className="mt-1 block text-[#073d2f]">Documents › {breadcrumbs.map((item) => item.name).join(' › ')}</strong></div> : <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-[#073d2f]"><span className="block text-xs font-semibold uppercase tracking-wide text-arms-green">Root folder upload</span><strong className="mt-1 block">The selected top-level folder will become the Filename.</strong><span className="mt-1 block text-xs text-stone-600">Its detected structure will be created inside that Filename automatically.</span></div>}
+                <div onDragOver={(event) => event.preventDefault()} onDrop={dropFolder} className="mt-5 rounded-xl border-2 border-dashed border-emerald-200 bg-emerald-50/40 px-6 py-9 text-center"><span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-white text-2xl text-arms-green shadow-sm">⇧</span><h3 className="mt-4 font-semibold text-[#073d2f]">Drag a folder here to preserve its folder structure.</h3><p className="mt-1 text-sm text-stone-500">or choose a folder from your computer</p><button type="button" onClick={() => inputRef.current?.click()} className="mt-4 rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#033b2d]">Choose folder</button><input ref={inputRef} type="file" multiple className="sr-only" onChange={(event) => { selectFiles(Array.from(event.target.files ?? [])); event.currentTarget.value = ''; }} /></div>
+                {form.errors.folder_files && <p className="mt-3 text-sm text-red-700">{form.errors.folder_files}</p>}
+                {form.data.relative_paths.length > 0 && <div className="mt-5 grid gap-4 md:grid-cols-[1fr_190px]"><section className="rounded-xl border border-stone-200 p-4"><h3 className="font-semibold text-[#073d2f]">Detected structure</h3><div className="mt-3 max-h-64 overflow-auto font-mono text-xs text-stone-700">{directories.map((directory) => <div key={directory} className="py-0.5" style={{ paddingLeft: `${Math.max(0, directory.split('/').length - 1) * 18}px` }}>▾ 📁 {directory.split('/').at(-1)}</div>)}{form.data.relative_paths.map((path) => <div key={path} className="py-0.5" style={{ paddingLeft: `${Math.max(0, path.split('/').length - 1) * 18}px` }}>📄 {path.split('/').at(-1)}</div>)}</div><p className="mt-3 text-xs text-stone-500">Detected paths are read-only and will be validated again on upload.</p></section><aside className="rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700"><p className="font-semibold text-[#073d2f]">Upload summary</p><p className="mt-4">📁 {rootCount} {rootCount === 1 ? 'folder' : 'folders'}</p><p className="mt-3">📂 {Math.max(0, directories.length - rootCount)} subfolders</p><p className="mt-3">📄 {form.data.folder_files.length} files</p></aside></div>}
+            </div>
+            <footer className="flex shrink-0 justify-end gap-3 border-t border-stone-100 bg-white px-6 py-4"><button type="button" onClick={onClose} disabled={uploading} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 disabled:opacity-50">Cancel</button><button disabled={uploading || !form.data.folder_files.length} className="rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">{uploading ? `Uploading ${uploadedCount} of ${form.data.folder_files.length} files…` : 'Upload folder'}</button></footer>
+        </form>
+    </div>;
 }
 
 function DocumentSummaryCard({ icon, value, label }: { icon:'document'|'folder'|'users'|'building'; value:number; label:string }) {
