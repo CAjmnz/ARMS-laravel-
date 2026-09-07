@@ -54,7 +54,9 @@ class DocumentUploadService
                     if (! $child) { $child = $hierarchy->createChild($parent, $segment, $actor, $context); $created[] = $child; }
                     $parent = $child;
                 }
-                $results[] = ['ok' => true, 'document' => $this->storeOne($parent, $file, null, $actor, $context)];
+                // Folder imports receive a separately stored protected viewer copy.
+                // The viewer route therefore never needs to expose or fall back to the original key.
+                $results[] = ['ok' => true, 'document' => $this->storeOne($parent, $file, $file, $actor, $context)];
             } catch (\Throwable $exception) {
                 foreach (array_reverse($created) as $folder) if (! $folder->children()->exists() && ! $folder->documents()->exists()) $folder->delete();
                 report($exception);
@@ -162,7 +164,9 @@ class DocumentUploadService
         }
 
         $baseName = pathinfo($originalName, PATHINFO_FILENAME);
-        if ($baseName === '' || preg_match('/[<>:"\/\\|?*]/', $baseName) || preg_match('/[\.\s]$/', $baseName)) {
+        // Keep logical names readable, but block only actual Windows-reserved characters.
+        // strpbrk avoids the malformed character-class match that was rejecting normal spaces.
+        if ($baseName === '' || strpbrk($baseName, '<>:"/\\|?*') !== false) {
             throw ValidationException::withMessages(['original_files' => 'The filename contains characters that are not allowed by Windows.']);
         }
 

@@ -62,6 +62,10 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
         ->name('documents.folders.rename');
     Route::delete('/documents/manage/{folder}', [FolderManagementController::class, 'destroy'])
         ->name('documents.folders.destroy');
+    Route::get('/documents/folders/{folder}/hierarchy-preview', [FolderManagementController::class, 'hierarchyPreview'])
+        ->name('documents.folders.hierarchy-preview');
+    Route::delete('/documents/folders/{folder}/hierarchy', [FolderManagementController::class, 'destroyHierarchy'])
+        ->name('documents.folders.hierarchy-destroy');
     Route::patch('/documents/bulk-transfer', [DocumentController::class, 'bulkMove'])->name('documents.bulk-move');
     Route::delete('/documents/bulk-delete', [FolderManagementController::class, 'bulkDelete'])->name('documents.bulk-delete');
     Route::post('/documents/folders/{folder}/upload', [DocumentController::class, 'upload'])->name('documents.upload');

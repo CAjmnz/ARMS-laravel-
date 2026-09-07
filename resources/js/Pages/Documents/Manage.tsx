@@ -21,12 +21,16 @@ interface Folder {
     can_unpublish?: boolean;
     rename_url?: string | null;
     delete_url?: string | null;
+    hierarchy_preview_url?: string | null;
+    hierarchy_delete_url?: string | null;
     updated_at?: string | null;
     owner?: string | null;
     information_url?: string;
 }
 
 interface DocumentItem { id:number; route_key:string; name:string; type:string; modified_at?:string|null; owner:string; show_url:string; viewer_url?:string|null; download_url?:string|null; edit_url?:string|null; update_url?:string|null; move_url?:string|null; delete_url?:string|null; information_url?:string; is_pinned?:boolean; pin_url?:string; }
+interface HierarchyNode { id:number; name:string; folders:HierarchyNode[]; documents:{id:number;name:string}[]; }
+interface HierarchyPreview { folder:{id:number;name:string;depth:number}; tree:HierarchyNode; counts:{folders:number;documents:number}; }
 interface PinnedSearchItem { pin_id:number; kind:'folder'|'document'; type:string; file_type?:string; id:number; route_key:string; name:string; path:string; updated_at?:string|null; href:string; opens_viewer?:boolean; information_url?:string; is_pinned:boolean; }
 interface PinnedSearchPage { data:PinnedSearchItem[]; current_page:number; last_page:number; prev_page_url:string|null; next_page_url:string|null; total:number; }
 
@@ -88,6 +92,8 @@ export default function Manage({
     const [bulkOpen, setBulkOpen] = useState(false);
     const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+    const [bulkDeleting, setBulkDeleting] = useState(false);
+    const [bulkDeletedCount, setBulkDeletedCount] = useState(0);
     const [bulkDestinationId, setBulkDestinationId] = useState('');
     const form = useForm({ name: '', subsidiary_id: '', department_id: '' });
     const uploadForm = useForm({ original_files: [] as File[], viewer_files: [] as File[] });
@@ -230,12 +236,34 @@ export default function Manage({
         setBulkDeleteOpen(true);
     };
 
-    const confirmBulkDelete = () => {
-        router.delete(route('documents.bulk-delete'), {
-            data: { folder_ids: selectedFolderIds, document_ids: selectedDocumentIds },
-            preserveScroll: true,
-            onSuccess: () => { setSelectedItems(new Set()); setBulkDeleteOpen(false); },
-        });
+    const confirmBulkDelete = async () => {
+        if (bulkDeleting || !selectedItems.size) return;
+
+        const batchSize = 100;
+        const batches = [
+            ...Array.from({ length: Math.ceil(selectedDocumentIds.length / batchSize) }, (_, index) => ({ folder_ids: [], document_ids: selectedDocumentIds.slice(index * batchSize, (index + 1) * batchSize) })),
+            ...Array.from({ length: Math.ceil(selectedFolderIds.length / batchSize) }, (_, index) => ({ folder_ids: selectedFolderIds.slice(index * batchSize, (index + 1) * batchSize), document_ids: [] })),
+        ].filter((batch) => batch.folder_ids.length || batch.document_ids.length);
+
+        setBulkDeleting(true);
+        setBulkDeletedCount(0);
+        try {
+            for (const batch of batches) {
+                await new Promise<void>((resolve, reject) => {
+                    router.delete(route('documents.bulk-delete'), {
+                        data: batch,
+                        preserveScroll: true,
+                        onSuccess: () => resolve(),
+                        onError: () => reject(new Error('Bulk deletion failed.')),
+                    });
+                });
+                setBulkDeletedCount((count) => count + batch.folder_ids.length + batch.document_ids.length);
+            }
+            setSelectedItems(new Set());
+            setBulkDeleteOpen(false);
+        } finally {
+            setBulkDeleting(false);
+        }
     };
 
     const updateTable = (changes: Record<string, string | number>) => {
@@ -394,9 +422,10 @@ export default function Manage({
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">!</div>
                         <h2 className="mt-4 text-xl font-semibold text-[#073d2f]">Delete selected items?</h2>
                         <p className="mt-2 text-sm text-stone-500">You are about to delete {selectedItems.size} selected item(s). This action cannot be undone.</p>
+                        {bulkDeleting && <p className="mt-3 text-sm font-medium text-red-700">Deleting {bulkDeletedCount} of {selectedItems.size} items…</p>}
                         <div className="mt-6 flex justify-center gap-3">
-                            <button type="button" onClick={() => setBulkDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700">Cancel</button>
-                            <button type="button" onClick={confirmBulkDelete} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Yes, delete</button>
+                            <button type="button" disabled={bulkDeleting} onClick={() => setBulkDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 disabled:opacity-50">Cancel</button>
+                            <button type="button" disabled={bulkDeleting} onClick={confirmBulkDelete} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">{bulkDeleting ? 'Deleting…' : 'Yes, delete'}</button>
                         </div>
                     </div>
                 </div>
@@ -827,22 +856,19 @@ function FolderActions({ folder, onInformation, open, onOpenChange }: { folder: 
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const [renameOpen, setRenameOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
+    const [hierarchyOpen, setHierarchyOpen] = useState(false);
+    const [preview, setPreview] = useState<HierarchyPreview | null>(null);
+    const [previewError, setPreviewError] = useState('');
+    const [loadingPreview, setLoadingPreview] = useState(false);
+    const [confirmation, setConfirmation] = useState('');
+    const [deletingHierarchy, setDeletingHierarchy] = useState(false);
     const [renameValue, setRenameValue] = useState(folder.name);
     const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault(); event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
-        const menuWidth = 208;
-        const menuHeight = 190;
-        const viewportPadding = 12;
-        const availableBelow = window.innerHeight - rect.bottom;
-        const top = availableBelow >= menuHeight + viewportPadding
-            ? rect.bottom + 6
-            : Math.max(viewportPadding, rect.top - menuHeight - 6);
-        const left = Math.min(
-            window.innerWidth - menuWidth - viewportPadding,
-            Math.max(viewportPadding, rect.right - menuWidth),
-        );
-        setMenuPosition({ top, left });
+        const menuWidth = 208; const menuHeight = 220; const viewportPadding = 12;
+        const top = window.innerHeight - rect.bottom >= menuHeight + viewportPadding ? rect.bottom + 6 : Math.max(viewportPadding, rect.top - menuHeight - 6);
+        setMenuPosition({ top, left: Math.min(window.innerWidth - menuWidth - viewportPadding, Math.max(viewportPadding, rect.right - menuWidth)) });
         onOpenChange(!open);
     };
     const submitRename = (event: FormEvent) => {
@@ -850,21 +876,39 @@ function FolderActions({ folder, onInformation, open, onOpenChange }: { folder: 
         if (!folder.rename_url || !renameValue.trim()) return;
         router.patch(folder.rename_url, { name: renameValue.trim() }, { preserveScroll: true, onSuccess: () => setRenameOpen(false) });
     };
-    const togglePin = () => {
-        if (!folder.pin_url) return;
-        onOpenChange(false);
-        router.patch(folder.pin_url, {}, { preserveScroll: true });
+    const togglePin = () => { if (folder.pin_url) { onOpenChange(false); router.patch(folder.pin_url, {}, { preserveScroll: true }); } };
+    const remove = () => { if (folder.delete_url) router.delete(folder.delete_url, { preserveScroll: true, onSuccess: () => setDeleteOpen(false) }); };
+    const openHierarchyDelete = async () => {
+        if (!folder.hierarchy_preview_url) return;
+        onOpenChange(false); setHierarchyOpen(true); setPreview(null); setPreviewError(''); setConfirmation(''); setLoadingPreview(true);
+        try {
+            const response = await fetch(folder.hierarchy_preview_url, { headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' } });
+            if (!response.ok) throw new Error('The hierarchy preview could not be loaded.');
+            setPreview(await response.json() as HierarchyPreview);
+        } catch (error) { setPreviewError(error instanceof Error ? error.message : 'The hierarchy preview could not be loaded.'); }
+        finally { setLoadingPreview(false); }
     };
-    const remove = () => {
-        if (!folder.delete_url) return;
-        router.delete(folder.delete_url, { preserveScroll: true, onSuccess: () => setDeleteOpen(false) });
+    const destroyHierarchy = () => {
+        if (!folder.hierarchy_delete_url || confirmation !== folder.name || deletingHierarchy) return;
+        setDeletingHierarchy(true);
+        router.delete(folder.hierarchy_delete_url, { data: { confirmation }, preserveScroll: true, onSuccess: () => setHierarchyOpen(false), onFinish: () => setDeletingHierarchy(false) });
     };
     return <div className="inline-block text-left">
         <button type="button" onClick={toggle} aria-label={'Actions for folder ' + folder.name} className={'rounded-lg px-2 py-1 text-lg leading-none transition ' + (open ? 'bg-emerald-100 text-[#073d2f]' : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')}>⋮</button>
-        {open && <div className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (folder.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{folder.is_pinned ? 'Unpin' : 'Pin'}</button>}{folder.information_url&&<button type="button" onClick={()=>{onOpenChange(false);onInformation({name:folder.name,url:folder.information_url!,kind:'folder'});}} className="block w-full rounded-lg px-3 py-2 text-left text-arms-green hover:bg-emerald-50">Information</button>}{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete</button>}</div>}
+        {open && <div className="fixed z-[80] w-56 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (folder.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{folder.is_pinned ? 'Unpin' : 'Pin'}</button>}{folder.information_url&&<button type="button" onClick={()=>{onOpenChange(false);onInformation({name:folder.name,url:folder.information_url!,kind:'folder'});}} className="block w-full rounded-lg px-3 py-2 text-left text-arms-green hover:bg-emerald-50">Information</button>}{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.hierarchy_delete_url && <button type="button" onClick={openHierarchyDelete} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50">Delete entire hierarchy</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete empty folder</button>}</div>}
         {renameOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><form onSubmit={submitRename} className="w-full max-w-md rounded-2xl bg-white p-6 text-left shadow-2xl"><div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-xl text-arms-green">✎</div><h3 className="mt-4 text-center text-xl font-semibold text-[#073d2f]">Rename folder</h3><p className="mt-1 text-center text-sm text-stone-500">Spaces will automatically become underscores. Windows-invalid characters are not allowed.</p><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"/><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setRenameOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white">Rename</button></div></form></div>}
         {deleteOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">!</div><h3 className="mt-4 text-xl font-semibold text-[#073d2f]">Delete folder?</h3><p className="mt-2 text-sm text-stone-500">Delete <strong>{folder.name}</strong>? Only empty folders can be deleted.</p><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button type="button" onClick={remove} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Yes, delete</button></div></div></div>}
+        {hierarchyOpen && <HierarchyDeleteModal folder={folder} preview={preview} loading={loadingPreview} error={previewError} confirmation={confirmation} deleting={deletingHierarchy} onConfirmationChange={setConfirmation} onClose={() => !deletingHierarchy && setHierarchyOpen(false)} onDelete={destroyHierarchy} />}
     </div>;
+}
+
+function HierarchyTree({ node, depth = 0 }: { node: HierarchyNode; depth?: number }) {
+    return <div style={{ paddingLeft: `${depth * 18}px` }}><div className="flex items-center gap-2 py-1 font-medium text-[#073d2f]"><span>📁</span><span className="break-all">{node.name}</span></div>{node.folders.map((child) => <HierarchyTree key={child.id} node={child} depth={depth + 1} />)}{node.documents.map((document) => <div key={document.id} style={{ paddingLeft: `${(depth + 1) * 18}px` }} className="flex items-center gap-2 py-1 text-stone-600"><span>📄</span><span className="break-all">{document.name}</span></div>)}</div>;
+}
+
+function HierarchyDeleteModal({ folder, preview, loading, error, confirmation, deleting, onConfirmationChange, onClose, onDelete }: { folder:Folder; preview:HierarchyPreview|null; loading:boolean; error:string; confirmation:string; deleting:boolean; onConfirmationChange:(value:string)=>void; onClose:()=>void; onDelete:()=>void }) {
+    const label = folder.depth === 0 ? 'Filename' : 'subfolder';
+    return <div className="fixed inset-0 z-[100] grid place-items-center bg-[#012a21]/65 p-4" role="presentation"><div role="dialog" aria-modal="true" aria-labelledby="hierarchy-delete-title" className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex shrink-0 items-center justify-between bg-arms-green px-6 py-5 text-white"><div><p className="text-xs font-bold uppercase tracking-wider text-[#e8c25c]">Level 4 action · irreversible</p><h2 id="hierarchy-delete-title" className="mt-1 text-xl font-semibold">Delete entire {label}?</h2></div><button type="button" onClick={onClose} disabled={deleting} aria-label="Close delete preview" className="grid h-9 w-9 place-items-center rounded-lg border border-white/40 text-xl hover:bg-white/10 disabled:opacity-50">×</button></header><div className="min-h-0 flex-1 overflow-y-auto p-6"><p className="text-sm text-stone-700">Review everything inside <strong>{folder.name}</strong> before deleting. The preview is read-only; files and folders cannot be selected or changed here.</p>{loading && <div className="mt-6 rounded-xl border border-stone-200 p-8 text-center text-sm text-stone-500">Loading complete hierarchy…</div>}{error && <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}{preview && <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px]"><section className="rounded-xl border border-stone-200 p-4"><h3 className="font-semibold text-[#073d2f]">Complete structure</h3><div className="mt-3 max-h-[48vh] overflow-auto rounded-lg bg-stone-50 p-3 text-sm"><HierarchyTree node={preview.tree} /></div><p className="mt-3 text-xs text-stone-500">Preview is read-only. No files can be selected or edited.</p></section><aside className="rounded-xl border border-amber-200 bg-amber-50 p-5"><h3 className="font-semibold text-[#073d2f]">Deletion impact</h3><p className="mt-5 text-sm text-stone-700">📁 <strong>{preview.counts.folders.toLocaleString()}</strong> folders</p><p className="mt-3 text-sm text-stone-700">📄 <strong>{preview.counts.documents.toLocaleString()}</strong> files</p><p className="mt-6 border-t border-amber-200 pt-4 text-sm font-semibold text-red-700">This action cannot be undone.</p><p className="mt-3 text-xs text-stone-600">All subfolders and documents shown in the preview will be deleted.</p></aside></div>}{preview && <label className="mt-6 block text-sm font-semibold text-stone-700">Type <span className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[#073d2f]">{folder.name}</span> to confirm<input autoFocus value={confirmation} onChange={(event) => onConfirmationChange(event.target.value)} className="mt-2 w-full rounded-xl border-stone-300" placeholder={'Type ' + folder.name + ' to confirm'} /></label>}</div><footer className="flex shrink-0 justify-end gap-3 border-t border-stone-100 bg-white px-6 py-4"><button type="button" onClick={onClose} disabled={deleting} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 disabled:opacity-50">Cancel</button><button type="button" disabled={!preview || confirmation !== folder.name || deleting} onClick={onDelete} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50">{deleting ? 'Deleting hierarchy…' : 'Delete ' + label}</button></footer></div></div>;
 }
 function PinnedSearchResults({ page, onInformation }: { page: PinnedSearchPage | null; onInformation:(target:{name:string;url:string;kind:'folder'|'document'})=>void }) {
     const items = page?.data ?? [];

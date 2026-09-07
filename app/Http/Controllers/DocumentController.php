@@ -48,6 +48,7 @@ class DocumentController extends Controller
                     'document_versions.extension',
                     'document_versions.size_bytes',
                     'document_versions.scan_status',
+                    'document_versions.storage_path',
                     'document_versions.uploaded_by',
                 ]),
             ])
@@ -64,7 +65,7 @@ class DocumentController extends Controller
                 'status' => $item->latestVersion?->scan_status ?? $item->status,
                 'created_at' => $item->created_at?->toIso8601String(),
                 'size' => $item->latestVersion?->size_bytes,
-                'viewer_url' => $item->latestVersion?->scan_status === 'ready' ? route('documents.viewer', $item) : null,
+                'viewer_url' => filled($item->latestVersion?->storage_path) ? route('documents.viewer', $item) : null,
                 'show_url' => route('documents.show', $item),
                 'download_url' => $user->can('download', $item) ? route('documents.download', $item) : null,
                 'edit_url' => $user->can('update', $item) ? route('documents.edit', $item) : null,
@@ -286,6 +287,14 @@ class DocumentController extends Controller
     {
         $this->authorize('view', $document);
         $version = $document->latestVersion;
+
+        // Older folder imports stored only the original. Create a separate protected
+        // viewer copy once, then always stream that viewer copy on every later request.
+        if ($version && (! $version->watermark_path || $version->scan_status !== 'ready')) {
+            $this->prepareViewerCopy($version);
+            $version->refresh();
+        }
+
         abort_unless($version && $version->scan_status === 'ready' && $version->watermark_path, 409, 'The protected viewer is not ready.');
 
         $this->audit($request, 'document.viewed', $document);
@@ -310,6 +319,32 @@ class DocumentController extends Controller
 
         $this->audit($request, 'document.original_downloaded', $document);
         return $this->stream($version->storage_disk, $version->storage_path, $version->mime_type, true, $document->title);
+    }
+
+    private function prepareViewerCopy($version): void
+    {
+        if (! $version->storage_path || ! Storage::disk($version->storage_disk)->exists($version->storage_path)) {
+            return;
+        }
+
+        $disk = Storage::disk($version->storage_disk);
+        $viewerPath = 'viewers/imported/'.Str::uuid().'.'.$version->extension;
+        if (! $disk->copy($version->storage_path, $viewerPath)) {
+            return;
+        }
+
+        try {
+            $version->update([
+                'watermark_path' => $viewerPath,
+                'preview_path' => $viewerPath,
+                'scan_status' => 'ready',
+                'scanned_at' => now(),
+            ]);
+            $version->document()->update(['status' => 'ready']);
+        } catch (\Throwable $exception) {
+            $disk->delete($viewerPath);
+            throw $exception;
+        }
     }
 
     private function stream(string $disk, string $path, string $mime, bool $download, string $name)

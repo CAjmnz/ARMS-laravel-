@@ -14,6 +14,7 @@ use App\Services\PinnedItemsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -78,6 +79,8 @@ class FolderManagementController extends Controller
                 'can_unpublish' => $user->can('unpublish', $item),
                 'rename_url' => $user->can('update', $item) ? route('documents.folders.rename', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.folders.destroy', $item) : null,
+                'hierarchy_preview_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-preview', $item) : null,
+                'hierarchy_delete_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-destroy', $item) : null,
                 'information_url' => route('documents.folders.information', $item),
             ]);
 
@@ -94,6 +97,7 @@ class FolderManagementController extends Controller
                     'document_versions.extension',
                     'document_versions.scan_status',
                     'document_versions.watermark_path',
+                    'document_versions.storage_path',
                 ]),
             ])
             ->orderByDesc('is_pinned')
@@ -108,7 +112,7 @@ class FolderManagementController extends Controller
                 'pin_url' => route('documents.pin', $item),
                 'status' => $item->latestVersion?->scan_status ?? $item->status,
                 'show_url' => route('documents.show', $item),
-                'viewer_url' => $item->latestVersion?->scan_status === 'ready' && filled($item->latestVersion?->watermark_path) ? route('documents.viewer', $item) : null,
+                'viewer_url' => filled($item->latestVersion?->watermark_path) || filled($item->latestVersion?->storage_path) ? route('documents.viewer', $item) : null,
                 'download_url' => $user->can('download', $item) ? route('documents.download', $item) : null,
                 'edit_url' => $user->can('update', $item) ? route('documents.edit', $item) : null,
                 'update_url' => $user->can('update', $item) ? route('documents.update', $item) : null,
@@ -126,6 +130,8 @@ class FolderManagementController extends Controller
                 'documents_count' => $documents->count(),
                 'can_manage' => $user->can('update', $folder),
                 'can_upload' => $user->can('upload', $folder),
+                'hierarchy_preview_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-preview', $folder) : null,
+                'hierarchy_delete_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-destroy', $folder) : null,
             ] : null,
             'breadcrumbs' => $folder
                 ? array_map(fn (Folder $item) => ['id' => $item->id, 'route_key' => $item->getRouteKey(), 'name' => $item->name], $hierarchy->breadcrumbs($folder))
@@ -209,12 +215,70 @@ class FolderManagementController extends Controller
         return back()->with('success', 'The folder was deleted successfully.');
     }
 
+    public function hierarchyPreview(Request $request, Folder $folder): JsonResponse
+    {
+        abort_unless($request->user()->isSuperUser(), 403);
+        $this->authorize('delete', $folder);
+
+        $folderIds = $this->hierarchyFolderIds($folder);
+        $folders = Folder::query()->whereIn('id', $folderIds)->orderBy('name')->get(['id', 'parent_id', 'name']);
+        $documents = Document::query()->whereIn('folder_id', $folderIds)->orderBy('title')->get(['id', 'folder_id', 'title']);
+        $children = $folders->groupBy('parent_id');
+        $files = $documents->groupBy('folder_id');
+        $buildTree = function (Folder $item) use (&$buildTree, $children, $files): array {
+            return [
+                'id' => $item->id,
+                'name' => $item->name,
+                'folders' => ($children->get($item->id, collect()))->map(fn (Folder $child) => $buildTree($child))->values(),
+                'documents' => ($files->get($item->id, collect()))->map(fn (Document $document) => ['id' => $document->id, 'name' => $document->title])->values(),
+            ];
+        };
+
+        return response()->json([
+            'folder' => ['id' => $folder->id, 'name' => $folder->name, 'depth' => $folder->depth],
+            'tree' => $buildTree($folder),
+            'counts' => ['folders' => $folders->count(), 'documents' => $documents->count()],
+        ]);
+    }
+
+    public function destroyHierarchy(Request $request, Folder $folder): RedirectResponse
+    {
+        abort_unless($request->user()->isSuperUser(), 403);
+        $this->authorize('delete', $folder);
+        $request->validate(['confirmation' => ['required', 'string', 'max:250']]);
+        abort_unless(hash_equals($folder->name, (string) $request->input('confirmation')), 422, 'Type the exact folder name to confirm deletion.');
+
+        DB::transaction(function () use ($request, $folder): void {
+            $folderIds = $this->hierarchyFolderIds($folder);
+            $documentCount = Document::query()->whereIn('folder_id', $folderIds)->count();
+            $folderCount = $folderIds->count();
+            Document::query()->whereIn('folder_id', $folderIds)->delete();
+            Folder::query()->whereIn('id', $folderIds)->delete();
+
+            \App\Models\ActivityLog::query()->create([
+                'user_id' => $request->user()->id,
+                'event' => 'folder.hierarchy_deleted',
+                'auditable_type' => Folder::class,
+                'auditable_id' => $folder->id,
+                'description' => 'Deleted '.($folder->depth === 0 ? 'Filename' : 'subfolder').' “'.$folder->name.'” and its complete hierarchy.',
+                'old_values' => ['item_name' => $folder->name, 'folder_count' => $folderCount, 'document_count' => $documentCount],
+                'new_values' => ['soft_deleted' => true, 'item_name' => $folder->name],
+                'ip_address' => $request->ip(),
+                'user_agent' => (string) $request->userAgent(),
+            ]);
+        });
+
+        return redirect()->route('documents.manage')->with('success', 'The complete '.($folder->depth === 0 ? 'Filename' : 'subfolder').' hierarchy was deleted.');
+    }
+
     public function bulkDelete(Request $request, FolderHierarchyService $hierarchy): RedirectResponse
     {
         $validated = $request->validate([
-            'folder_ids' => ['nullable', 'array', 'max:100'],
+            // The UI submits controlled batches, but accept a full visible selection
+            // from an already-open page as well. Each item is still policy-checked below.
+            'folder_ids' => ['nullable', 'array', 'max:5000'],
             'folder_ids.*' => ['integer', 'distinct', 'exists:folders,id'],
-            'document_ids' => ['nullable', 'array', 'max:100'],
+            'document_ids' => ['nullable', 'array', 'max:5000'],
             'document_ids.*' => ['integer', 'distinct', 'exists:documents,id'],
         ]);
 
@@ -239,6 +303,19 @@ class FolderManagementController extends Controller
         }
 
         return back()->with('success', ($documents->count() + $folders->count()).' selected item(s) deleted successfully.');
+    }
+
+    /** @return \Illuminate\Support\Collection<int, int> */
+    private function hierarchyFolderIds(Folder $root): \Illuminate\Support\Collection
+    {
+        $ids = collect([$root->id]);
+        $frontier = [$root->id];
+        while ($frontier !== []) {
+            $frontier = Folder::query()->whereIn('parent_id', $frontier)->pluck('id')->all();
+            $ids = $ids->merge($frontier);
+        }
+
+        return $ids->unique()->values();
     }
 
     private function normalizeWindowsName(string $value, string $field): string
