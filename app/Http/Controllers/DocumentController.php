@@ -6,6 +6,7 @@ use App\Models\ActivityLog;
 use App\Models\Document;
 use App\Models\Folder;
 use App\Models\User;
+use App\Services\BatchDocumentDownloadService;
 use App\Services\DocumentAccessService;
 use App\Services\DocumentInformationService;
 use App\Services\DocumentUploadService;
@@ -139,6 +140,59 @@ class DocumentController extends Controller
         $this->audit($request, 'document.moved', $document, ['folder_id' => $oldFolder], ['folder_id' => $destination->id]);
 
         return back()->with('success', 'Document moved successfully.');
+    }
+
+    public function bulkDownload(Request $request, BatchDocumentDownloadService $downloads)
+    {
+        $data = $request->validate([
+            'document_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'document_ids.*' => ['required', 'integer', 'distinct', 'exists:documents,id'],
+        ]);
+
+        $documents = Document::query()
+            ->whereIn('id', $data['document_ids'])
+            ->with('latestVersion')
+            ->get();
+
+        if ($documents->count() !== count($data['document_ids'])) {
+            return response()->json([
+                'message' => 'One or more selected documents no longer exist.',
+            ], 422);
+        }
+
+        foreach ($documents as $document) {
+            $this->authorize('download', $document);
+        }
+
+        try {
+            $path = $downloads->create($documents);
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            throw $exception;
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return response()->json([
+                'message' => 'The selected documents could not be packaged for download. Please try again.',
+            ], 500);
+        }
+
+        ActivityLog::query()->create([
+            'user_id' => $request->user()->id,
+            'event' => 'document.batch_downloaded',
+            'description' => 'Downloaded '.$documents->count().' selected document(s) as one ZIP archive.',
+            'new_values' => [
+                'document_ids' => $documents->pluck('id')->values()->all(),
+                'count' => $documents->count(),
+            ],
+            'ip_address' => $request->ip(),
+            'user_agent' => (string) $request->userAgent(),
+        ]);
+
+        $filename = 'RMS-selected-documents-'.now()->format('Y-m-d-His').'.zip';
+
+        return response()
+            ->download($path, $filename, ['Content-Type' => 'application/zip'])
+            ->deleteFileAfterSend(true);
     }
 
     public function bulkMove(Request $request): RedirectResponse
@@ -352,12 +406,15 @@ class DocumentController extends Controller
         abort_unless(Storage::disk($disk)->exists($path), 404);
         $filename = preg_replace('/[^A-Za-z0-9._ -]/', '_', $name) ?: 'document';
 
-        return response()->file(Storage::disk($disk)->path($path), [
+        $response = response()->file(Storage::disk($disk)->path($path), [
             'Content-Type' => $mime,
             'Content-Disposition' => ($download ? 'attachment' : 'inline').'; filename="'.$filename.'"',
             'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
         ]);
+        $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
+
+        return $response;
     }
 
     private function payload(User $user, Document $document): array

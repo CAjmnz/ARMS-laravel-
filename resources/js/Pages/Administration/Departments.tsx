@@ -36,14 +36,17 @@ interface PageProps {
         sort: 'id' | 'name' | 'subsidiary';
         order: 'asc' | 'desc';
         per_page: number;
+        subsidiary_id: number | null;
     };
     subsidiaries: SubsidiaryOption[];
+    selected_subsidiary: SubsidiaryOption | null;
 }
 
 export default function Departments({
     departments,
     filters,
     subsidiaries,
+    selected_subsidiary,
 }: PageProps) {
     const [editing, setEditing] = useState<Department | null>(null);
     const [deleting, setDeleting] = useState<Department | null>(null);
@@ -63,6 +66,7 @@ export default function Departments({
     const openCreateForm = () => {
         form.reset();
         form.clearErrors();
+        form.setData('subsidiary_id', selected_subsidiary ? String(selected_subsidiary.id) : '');
         setEditing(null);
         setShowForm(true);
     };
@@ -135,9 +139,21 @@ export default function Departments({
                     <Link href={route('administration.departments.index')} className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-arms-green">Departments</Link>
                 </div>
                 <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-                    <p className="text-sm text-stone-600">
-                        Manage departments and their subsidiary assignments.
-                    </p>
+                    <div>
+                        <p className="text-sm text-stone-600">
+                            {selected_subsidiary
+                                ? `Departments under ${selected_subsidiary.name}`
+                                : 'Manage departments and their subsidiary assignments.'}
+                        </p>
+                        {selected_subsidiary && (
+                            <Link
+                                href={route('administration.departments.index')}
+                                className="mt-2 inline-flex text-sm font-semibold text-arms-green hover:underline"
+                            >
+                                View all departments
+                            </Link>
+                        )}
+                    </div>
 
                     <button
                         type="button"
@@ -158,7 +174,7 @@ export default function Departments({
                                     search: event.target.value,
                                 })
                             }
-                            placeholder="Search departments or subsidiaries"
+                            placeholder={selected_subsidiary ? `Search departments in ${selected_subsidiary.name}` : 'Search departments or subsidiaries'}
                             className="w-full rounded-xl border-stone-300 text-sm focus:border-arms-green focus:ring-arms-green sm:max-w-sm"
                         />
 

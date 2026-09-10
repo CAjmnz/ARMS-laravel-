@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DatabaseBackupController;
 use App\Http\Controllers\DocumentAccessManagementController;
 use App\Http\Controllers\DocumentController;
 use App\Models\Department;
@@ -16,6 +17,8 @@ use App\Http\Controllers\UserRoleController;
 use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\UserPinController;
 use App\Http\Controllers\SystemSettingsController;
+use App\Http\Controllers\UserPortalController;
+use App\Http\Controllers\SystemBackupController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
@@ -47,6 +50,11 @@ Route::get('/dashboard', DashboardController::class)
     ->middleware(['auth', 'active', 'password.changed', 'session.timeout'])
     ->name('dashboard');
 
+Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->prefix('portal')->name('portal.')->group(function () {
+    Route::get('/dashboard', [UserPortalController::class, 'dashboard'])->name('dashboard');
+    Route::get('/documents/{folder?}', [UserPortalController::class, 'documents'])->name('documents');
+});
+
 Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->group(function () {
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
@@ -66,6 +74,7 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
         ->name('documents.folders.hierarchy-preview');
     Route::delete('/documents/folders/{folder}/hierarchy', [FolderManagementController::class, 'destroyHierarchy'])
         ->name('documents.folders.hierarchy-destroy');
+    Route::post('/documents/bulk-download', [DocumentController::class, 'bulkDownload'])->name('documents.bulk-download');
     Route::patch('/documents/bulk-transfer', [DocumentController::class, 'bulkMove'])->name('documents.bulk-move');
     Route::delete('/documents/bulk-delete', [FolderManagementController::class, 'bulkDelete'])->name('documents.bulk-delete');
     Route::post('/documents/folders/{folder}/upload', [DocumentController::class, 'upload'])->name('documents.upload');
@@ -124,6 +133,8 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::patch('/administration/system/file-types/{fileType}/toggle', [SystemSettingsController::class, 'toggleFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.toggle');
     Route::delete('/administration/system/file-types/{fileType}', [SystemSettingsController::class, 'destroyFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.destroy');
     Route::delete('/administration/system/logs', [SystemSettingsController::class, 'clearLogs'])->middleware('permission:system-settings.manage')->name('system.logs.clear');
+    Route::post('/administration/system/backup/system-database', SystemBackupController::class)->middleware('permission:backups.manage')->name('system.backup.system-database');
+    Route::post('/administration/system/backup/database', DatabaseBackupController::class)->middleware('permission:backups.manage')->name('system.backup.database');
 });
 
 require __DIR__.'/auth.php';

@@ -33,6 +33,12 @@ class AuthenticatedSessionController extends Controller
             return redirect()->route('password.required');
         }
 
+        $level = $request->user()->roleLevel();
+
+        if (in_array($level, [1, 2], true)) {
+            return redirect()->intended(route('portal.dashboard', absolute: false));
+        }
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 

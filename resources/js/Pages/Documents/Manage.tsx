@@ -3,6 +3,7 @@ import PinnedItemsDropdown from '@/Components/PinnedItemsDropdown';
 import InformationDrawer from '@/Components/InformationDrawer';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { Head, Link, router, useForm } from '@inertiajs/react';
+import axios from 'axios';
 import { DragEvent, FormEvent, useEffect, useRef, useState, useMemo } from 'react';
 
 interface Folder {
@@ -95,6 +96,8 @@ export default function Manage({
     const [bulkDeleting, setBulkDeleting] = useState(false);
     const [bulkDeletedCount, setBulkDeletedCount] = useState(0);
     const [bulkDestinationId, setBulkDestinationId] = useState('');
+    const [bulkDownloadProcessing, setBulkDownloadProcessing] = useState(false);
+    const [bulkDownloadError, setBulkDownloadError] = useState('');
     const form = useForm({ name: '', subsidiary_id: '', department_id: '' });
     const uploadForm = useForm({ original_files: [] as File[], viewer_files: [] as File[] });
     const inlineUploadForm = useForm({ original_files: [] as File[], viewer_files: [] as File[] });
@@ -206,19 +209,46 @@ export default function Manage({
         });
     };
 
-    const bulkDownload = () => {
-        const selectedDocuments = documents.filter((document) => selectedItems.has(`document:${document.id}`) && document.download_url);
+    const bulkDownload = async () => {
+        if (bulkDownloadProcessing || !selectedDocumentIds.length) return;
+
         setBulkOpen(false);
-        selectedDocuments.forEach((document, index) => {
-            window.setTimeout(() => {
-                const link = window.document.createElement('a');
-                link.href = document.download_url as string;
-                link.download = '';
-                window.document.body.appendChild(link);
-                link.click();
-                link.remove();
-            }, index * 250);
-        });
+        setBulkDownloadProcessing(true);
+        setBulkDownloadError('');
+
+        try {
+            const response = await axios.post(
+                route('documents.bulk-download'),
+                { document_ids: selectedDocumentIds },
+                { responseType: 'blob' },
+            );
+            const disposition = String(response.headers['content-disposition'] ?? '');
+            const match = disposition.match(/filename="?([^";]+)"?/i);
+            const filename = match?.[1] ?? 'RMS-selected-documents.zip';
+            const url = window.URL.createObjectURL(response.data);
+            const link = window.document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            window.document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            setSelectedItems(new Set());
+        } catch (error) {
+            if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+                try {
+                    const payload = JSON.parse(await error.response.data.text());
+                    const firstValidationError = payload.errors ? Object.values(payload.errors).flat()[0] : null;
+                    setBulkDownloadError(String(firstValidationError ?? payload.message ?? 'The selected documents could not be downloaded.'));
+                } catch {
+                    setBulkDownloadError('The selected documents could not be downloaded. Please try again.');
+                }
+            } else {
+                setBulkDownloadError('The selected documents could not be downloaded. Please try again.');
+            }
+        } finally {
+            setBulkDownloadProcessing(false);
+        }
     };
 
     const submitBulkTransfer = (event: FormEvent) => {
@@ -346,13 +376,15 @@ export default function Manage({
                             <div className="relative">
                                 <button type="button" onClick={() => setBulkOpen((open) => !open)} disabled={!selectedItems.size} className="inline-flex h-10 items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-700 shadow-sm hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-45">Bulk actions <span className="text-xs">⌄</span></button>
                                 {bulkOpen && <div className="absolute left-0 top-12 z-40 w-60 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl">
-                                    <button type="button" disabled={!selectedDocumentIds.length} onClick={bulkDownload} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300">⇩ Download selected files</button>
+                                    <button type="button" disabled={!selectedDocumentIds.length || bulkDownloadProcessing} onClick={bulkDownload} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300">{bulkDownloadProcessing ? 'Creating ZIP…' : '⇩ Download selected files'}</button>
                                     <button type="button" disabled={!selectedDocumentIds.length} onClick={() => { setBulkOpen(false); setBulkTransferOpen(true); }} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300">⇄ Transfer selected files</button>
                                     <button type="button" onClick={bulkDelete} className="mt-1 block w-full border-t border-stone-100 rounded-lg px-3 py-2.5 text-left text-red-700 hover:bg-red-50">♜ Delete selected items</button>
                                 </div>}
                             </div>
                             <span className="text-sm text-stone-500">{selectedItems.size ? `${selectedItems.size} item(s) selected` : 'No records selected'}</span>
+                            {bulkDownloadProcessing && <span className="text-sm font-semibold text-arms-green">Creating ZIP…</span>}
                         </div>}
+                        {bulkDownloadError && <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{bulkDownloadError}</div>}
                         <label className="flex items-center gap-2 text-sm text-stone-600">Show
                             <select value={filters.per_page ?? 10} onChange={(event) => updateTable({ per_page: Number(event.target.value) })} className="h-10 rounded-xl border-stone-300 bg-white py-1 pl-3 pr-8 text-sm">
                                 {[10,25,50,100].map((value) => <option key={value} value={value}>{value}</option>)}
@@ -506,7 +538,7 @@ export default function Manage({
                 </div>
             )}
 
-            {viewingDocument && <LegacyDocumentViewer document={viewingDocument} documents={documents} destinations={uploadFolders} close={closeDocumentViewer} />}
+            {viewingDocument && <LegacyDocumentViewer document={viewingDocument} documents={documents} destinations={uploadFolders} folderPath={['Documents', ...breadcrumbs.map((item) => item.name)].join(' › ')} close={closeDocumentViewer} />}
             <InformationDrawer target={informationTarget} onClose={() => setInformationTarget(null)} />
 
             {creating && (
@@ -672,7 +704,7 @@ function DocumentCard({ document, destinations, onOpen, onInformation, selected,
     const [menuOpen, setMenuOpen] = useState(false);
     return <div className={'rounded-xl border bg-white p-3 text-left shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/60 ring-2 ring-emerald-100' : 'border-stone-200 hover:border-[#b7d9cb] hover:shadow-md')}><div className="flex items-center justify-between"><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + document.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><DocumentActions document={document} destinations={destinations} onOpen={onOpen} onInformation={onInformation} open={menuOpen} onOpenChange={setMenuOpen} /></div><button onClick={() => onOpen(document)} className="mt-2 block w-full text-left"><div className="relative grid h-28 place-items-center overflow-visible rounded-lg border border-stone-100 bg-stone-50"><div className="h-full w-full overflow-hidden rounded-lg grid place-items-center"><DocumentThumbnail document={document} /></div><PinMarker pinned={document.is_pinned} /></div><p className="mt-2 truncate text-sm font-semibold text-[#073d2f]">{document.name}</p><p className="text-[11px] text-stone-500">{document.type} · {formatDate(document.modified_at)}</p></button></div>;
 }
-function LegacyDocumentViewer({ document, documents, destinations, close }: { document:DocumentItem; documents:DocumentItem[]; destinations:Props['uploadFolders']; close:()=>void }) {
+function LegacyDocumentViewer({ document, documents, destinations, folderPath, close }: { document:DocumentItem; documents:DocumentItem[]; destinations:Props['uploadFolders']; folderPath:string; close:()=>void }) {
     const [current, setCurrent] = useState(document);
     const [actionsOpen, setActionsOpen] = useState(false);
     const [renameOpen, setRenameOpen] = useState(false);
@@ -681,27 +713,34 @@ function LegacyDocumentViewer({ document, documents, destinations, close }: { do
     const [renameValue, setRenameValue] = useState(document.name);
     const [destinationId, setDestinationId] = useState('');
     const [zoom, setZoom] = useState(1);
+    const [fit, setFit] = useState(true);
+    const [page, setPage] = useState(1);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const dragging = useRef(false);
     const dragOrigin = useRef({ x: 0, y: 0 });
     const positionOrigin = useRef({ x: 0, y: 0 });
     const index = documents.findIndex((item) => item.id === current.id);
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(current.type.toUpperCase());
+    const isPdf = current.type.toUpperCase() === 'PDF';
+    const viewerSource = current.viewer_url && isPdf
+        ? `${current.viewer_url}#page=${page}&zoom=${fit ? 'page-fit' : Math.round(zoom * 100)}`
+        : current.viewer_url;
 
     useEffect(() => {
         const previousOverflow = window.document.body.style.overflow;
         window.document.body.style.overflow = 'hidden';
         const stopBrowserZoom = (event: WheelEvent) => {
-            if (!event.ctrlKey) return;
+            if (!event.ctrlKey || (!isImage && !isPdf)) return;
             event.preventDefault();
-            if (isImage) setZoom((value) => Math.min(4, Math.max(0.25, value + (event.deltaY < 0 ? 0.1 : -0.1))));
+            setFit(false);
+            setZoom((value) => Math.min(4, Math.max(0.25, value + (event.deltaY < 0 ? 0.1 : -0.1))));
         };
         window.addEventListener('wheel', stopBrowserZoom, { passive: false, capture: true });
         return () => {
             window.document.body.style.overflow = previousOverflow;
             window.removeEventListener('wheel', stopBrowserZoom, true);
         };
-    }, [isImage]);
+    }, [isImage, isPdf]);
 
     useEffect(() => {
         const navigateWithKeyboard = (event: KeyboardEvent) => {
@@ -718,7 +757,8 @@ function LegacyDocumentViewer({ document, documents, destinations, close }: { do
         return () => window.removeEventListener('keydown', navigateWithKeyboard);
     }, [index, documents.length, renameOpen, transferOpen]);
 
-    const resetView = () => { setZoom(1); setPosition({ x: 0, y: 0 }); };
+    const resetView = () => { setZoom(1); setFit(true); setPage(1); setPosition({ x: 0, y: 0 }); };
+    const actualSize = () => { setZoom(1); setFit(false); setPosition({ x: 0, y: 0 }); };
     const changeDocument = (nextIndex: number) => {
         if (nextIndex < 0 || nextIndex >= documents.length) return;
         const next = documents[nextIndex];
@@ -759,7 +799,7 @@ function LegacyDocumentViewer({ document, documents, destinations, close }: { do
     return <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-[#012a21]/65 p-4">
         <div role="dialog" aria-modal="true" className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
             <header className="relative flex items-start justify-between gap-5 bg-[#087d5a] px-7 py-5 text-white">
-                <div><span className="text-xs font-bold tracking-wide">DOCUMENT VIEWER</span><h2 className="mt-1 text-xl font-semibold">{current.name}</h2><p className="text-sm">File {index + 1} of {documents.length}</p></div>
+                <div className="min-w-0"><span className="text-xs font-bold tracking-wide">DOCUMENT VIEWER</span><h2 className="mt-1 truncate text-xl font-semibold">{current.name}</h2><p className="truncate text-sm">{folderPath} · File {index + 1} of {documents.length}</p></div>
                 <div className="flex items-center gap-3">
                     <div className="relative">
                         <button type="button" onClick={() => setActionsOpen((open) => !open)} className="rounded-xl border border-white/40 px-4 py-2 text-sm font-semibold hover:bg-white/10">Actions⌄</button>
@@ -774,18 +814,19 @@ function LegacyDocumentViewer({ document, documents, destinations, close }: { do
                 </div>
             </header>
             <div className="flex flex-wrap items-center gap-2 border-b p-3 text-sm">
-                <button type="button" onClick={() => setZoom((value) => Math.max(0.25, value - 0.1))} className="rounded border px-3 py-2">⌕ Zoom Out</button>
+                <button type="button" disabled={!isImage && !isPdf} onClick={() => { setFit(false); setZoom((value) => Math.max(0.25, value - 0.1)); }} className="rounded border px-3 py-2 disabled:opacity-35">⌕ Zoom Out</button>
                 <strong className="min-w-12 text-center text-arms-green">{Math.round(zoom * 100)}%</strong>
-                <button type="button" onClick={() => setZoom((value) => Math.min(4, value + 0.1))} className="rounded border px-3 py-2">⌕ Zoom In</button>
-                <button type="button" onClick={resetView} className="rounded border px-3 py-2">Fit to Screen</button>
-                <button type="button" onClick={resetView} className="rounded border px-3 py-2">Actual Size</button>
-                <span className="ml-auto text-stone-500">Hold left mouse button and drag to move · Hold Ctrl + mouse wheel to zoom preview</span>
+                <button type="button" disabled={!isImage && !isPdf} onClick={() => { setFit(false); setZoom((value) => Math.min(4, value + 0.1)); }} className="rounded border px-3 py-2 disabled:opacity-35">⌕ Zoom In</button>
+                <button type="button" disabled={!isImage && !isPdf} onClick={resetView} className="rounded border px-3 py-2 disabled:opacity-35">Fit to Screen</button>
+                <button type="button" disabled={!isImage && !isPdf} onClick={actualSize} className="rounded border px-3 py-2 disabled:opacity-35">Actual Size</button>
+                {isPdf && <><button type="button" disabled={page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded border px-3 py-2 disabled:opacity-35">Prev page</button><label className="flex items-center gap-2 text-stone-600">Page <input type="number" min={1} value={page} onChange={(event) => setPage(Math.max(1, Number(event.target.value) || 1))} className="w-16 rounded border-stone-300 py-1.5 text-center text-sm" /></label><button type="button" onClick={() => setPage((value) => value + 1)} className="rounded border px-3 py-2">Next page</button></>}
+                <span className="ml-auto text-stone-500">{isImage ? 'Drag to pan · Ctrl + wheel to zoom' : isPdf ? 'PDF controls use the protected browser viewer.' : 'Protected viewer copy only.'}</span>
             </div>
-            <div onMouseDown={startDrag} onMouseMove={moveDrag} onMouseUp={stopDrag} onMouseLeave={stopDrag} className={'relative min-h-0 flex-1 overflow-hidden bg-[#24313a] p-5 ' + (isImage ? 'cursor-grab active:cursor-grabbing' : '')}>
-                {current.viewer_url ? (isImage ? <div className="grid h-full w-full place-items-center overflow-hidden"><img draggable={false} src={current.viewer_url} alt={current.name} className="max-h-full max-w-full select-none object-contain" style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`, transformOrigin: 'center center' }} /></div> : <iframe title="Uploaded document viewer" src={current.viewer_url} className="h-full w-full rounded bg-white" />) : <div className="grid h-full place-items-center bg-white text-stone-500">The protected viewer is not ready.</div>}
+            <div onMouseDown={startDrag} onMouseMove={moveDrag} onMouseUp={stopDrag} onMouseLeave={stopDrag} className={'relative min-h-0 flex-1 overflow-auto scroll-smooth bg-[#24313a] p-5 ' + (isImage ? 'cursor-grab active:cursor-grabbing' : '')}>
+                {viewerSource ? (isImage ? <div className="grid min-h-full min-w-full place-items-center overflow-visible"><img draggable={false} src={viewerSource} alt={current.name} className={fit ? 'max-h-full max-w-full select-none object-contain' : 'max-h-none max-w-none select-none'} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`, transformOrigin: 'center center' }} /></div> : <iframe title="Uploaded document viewer" src={viewerSource} className="h-full min-h-[520px] w-full rounded bg-white" />) : <div className="grid h-full place-items-center bg-white text-stone-500">The protected viewer is not ready.</div>}
                 {documents.length > 1 && <><button type="button" disabled={index <= 0} onClick={() => changeDocument(index - 1)} className="absolute left-5 top-1/2 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full border border-white/70 bg-black/20 text-4xl text-white backdrop-blur hover:bg-black/35 disabled:opacity-30">‹</button><button type="button" disabled={index >= documents.length - 1} onClick={() => changeDocument(index + 1)} className="absolute right-5 top-1/2 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full border border-white/70 bg-black/20 text-4xl text-white backdrop-blur hover:bg-black/35 disabled:opacity-30">›</button></>}
             </div>
-            <footer className="border-t px-6 py-3 font-semibold text-[#073d2f]">{current.name}</footer>
+            <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-6 py-3 text-sm"><span className="truncate font-semibold text-[#073d2f]">{current.name}</span><span className="truncate text-stone-500">{folderPath}</span></footer>
         </div>
         {renameOpen && <div className="absolute inset-0 z-[60] grid place-items-center bg-black/30 p-4"><form onSubmit={submitRename} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><h3 className="text-lg font-semibold text-[#073d2f]">Rename document</h3><p className="mt-1 text-sm text-stone-500">Rename this file without leaving the viewer.</p><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"/><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setRenameOpen(false)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2 text-sm font-semibold text-white">Save</button></div></form></div>}
         {transferOpen && <div className="absolute inset-0 z-[60] grid place-items-center bg-black/30 p-4"><form onSubmit={submitTransfer} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"><h3 className="text-lg font-semibold text-[#073d2f]">Transfer document</h3><p className="mt-1 text-sm text-stone-500">Choose the destination without leaving the document viewer.</p><select autoFocus value={destinationId} onChange={(event) => setDestinationId(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"><option value="">Select destination path</option>{destinations.map((folder) => <option key={folder.id} value={folder.id}>{folder.path}</option>)}</select><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setTransferOpen(false)} className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold">Cancel</button><button disabled={!destinationId} className="rounded-xl bg-arms-green px-5 py-2 text-sm font-semibold text-white disabled:opacity-50">Transfer</button></div></form></div>}

@@ -19,8 +19,9 @@ class ProfileController extends Controller
     public function edit(Request $request): Response
     {
         $user = $request->user()->loadMissing(['subsidiary', 'department', 'roles']);
+        $component = in_array($user->roleLevel(), [1, 2], true) ? 'Portal/Profile' : 'Profile/Edit';
 
-        return Inertia::render('Profile/Edit', [
+        return Inertia::render($component, [
             'mustVerifyEmail' => $user instanceof MustVerifyEmail,
             'status' => session('status'),
             'profile' => [

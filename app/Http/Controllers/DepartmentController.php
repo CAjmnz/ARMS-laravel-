@@ -22,6 +22,7 @@ class DepartmentController extends Controller
         $departments = Department::query()
             ->with('subsidiary:id,name')
             ->withCount(['users', 'folders'])
+            ->when($filters['subsidiary_id'], fn ($query, $subsidiaryId) => $query->where('subsidiary_id', $subsidiaryId))
             ->when($filters['search'], function ($query, $search): void {
                 $query->where(function ($query) use ($search): void {
                     $query->where('name', 'like', '%'.$search.'%')
@@ -48,6 +49,9 @@ class DepartmentController extends Controller
             'departments' => $departments,
             'filters' => $filters,
             'subsidiaries' => Subsidiary::query()->orderBy('name')->get(['id', 'name']),
+            'selected_subsidiary' => $filters['subsidiary_id']
+                ? Subsidiary::query()->find($filters['subsidiary_id'], ['id', 'name'])
+                : null,
         ]);
     }
 
@@ -80,6 +84,7 @@ class DepartmentController extends Controller
             'sort' => in_array($request->input('sort'), ['id', 'name', 'subsidiary'], true) ? $request->input('sort') : 'name',
             'order' => in_array($request->input('order'), ['asc', 'desc'], true) ? $request->input('order') : 'asc',
             'per_page' => in_array((int) $request->input('per_page'), [10, 25, 50, 100], true) ? (int) $request->input('per_page') : 10,
+            'subsidiary_id' => $request->filled('subsidiary_id') ? (int) $request->input('subsidiary_id') : null,
         ];
     }
 
