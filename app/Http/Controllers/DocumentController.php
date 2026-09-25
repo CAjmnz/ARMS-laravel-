@@ -145,7 +145,7 @@ class DocumentController extends Controller
     public function bulkDownload(Request $request, BatchDocumentDownloadService $downloads)
     {
         $data = $request->validate([
-            'document_ids' => ['required', 'array', 'min:1', 'max:50'],
+            'document_ids' => ['required', 'array', 'min:1', 'max:100'],
             'document_ids.*' => ['required', 'integer', 'distinct', 'exists:documents,id'],
         ]);
 
@@ -237,9 +237,9 @@ class DocumentController extends Controller
     {
         $this->authorize('upload', $folder);
         $request->validate([
-            'original_files' => ['required', 'array', 'min:1', 'max:30'],
+            'original_files' => ['required', 'array', 'min:1', 'max:100'],
             'original_files.*' => ['file'],
-            'viewer_files' => ['nullable', 'array', 'max:30'],
+            'viewer_files' => ['nullable', 'array', 'max:100'],
             'viewer_files.*' => ['nullable', 'file'],
         ]);
 
@@ -344,12 +344,24 @@ class DocumentController extends Controller
 
         // Older folder imports stored only the original. Create a separate protected
         // viewer copy once, then always stream that viewer copy on every later request.
-        if ($version && (! $version->watermark_path || $version->scan_status !== 'ready')) {
-            $this->prepareViewerCopy($version);
-            $version->refresh();
+        if ($version) {
+            $viewerMissing = ! $version->watermark_path
+                || ! Storage::disk($version->storage_disk)->exists($version->watermark_path);
+
+            if ($viewerMissing || $version->scan_status !== 'ready') {
+                $this->prepareViewerCopy($version);
+                $version->refresh();
+            }
         }
 
-        abort_unless($version && $version->scan_status === 'ready' && $version->watermark_path, 409, 'The protected viewer is not ready.');
+        abort_unless(
+            $version
+                && $version->scan_status === 'ready'
+                && $version->watermark_path
+                && Storage::disk($version->storage_disk)->exists($version->watermark_path),
+            409,
+            'The protected viewer is not ready.'
+        );
 
         $this->audit($request, 'document.viewed', $document);
         return $this->stream($version->storage_disk, $version->watermark_path, $version->mime_type, false, $document->title);

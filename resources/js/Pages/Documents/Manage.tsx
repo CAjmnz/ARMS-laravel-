@@ -20,6 +20,8 @@ interface Folder {
     is_published?: boolean;
     can_publish?: boolean;
     can_unpublish?: boolean;
+    publish_url?: string | null;
+    unpublish_url?: string | null;
     rename_url?: string | null;
     delete_url?: string | null;
     hierarchy_preview_url?: string | null;
@@ -120,6 +122,10 @@ export default function Manage({
     );
 
     useEffect(() => {
+        setSelectedItems(new Set());
+    }, [currentFolder?.id, filters.search, filters.sort, filters.order, filters.per_page, folders.current_page]);
+
+    useEffect(() => {
         const routeKey = new URLSearchParams(window.location.search).get('open_document');
         if (!routeKey || autoOpenedDocument.current === routeKey) return;
         const document = documents.find((item) => item.route_key === routeKey);
@@ -145,7 +151,7 @@ export default function Manage({
 
     const addUploadFiles = (kind: 'original_files' | 'viewer_files', files: File[]) => {
         const current = uploadForm.data[kind];
-        const combined = [...current, ...files].slice(0, 30);
+        const combined = [...current, ...files].slice(0, 100);
         uploadForm.setData(kind, combined);
     };
 
@@ -258,6 +264,18 @@ export default function Manage({
             preserveScroll: true,
             onSuccess: () => { setSelectedItems(new Set()); setBulkDestinationId(''); setBulkTransferOpen(false); },
         });
+    };
+
+    const bulkPublish = () => {
+        if (!selectedFolderIds.length || selectedDocumentIds.length) return;
+        setBulkOpen(false);
+        router.patch(route('documents.bulk-publish'), { folder_ids: selectedFolderIds }, { preserveScroll: true, onSuccess: () => setSelectedItems(new Set()) });
+    };
+
+    const bulkUnpublish = () => {
+        if (!selectedFolderIds.length || selectedDocumentIds.length) return;
+        setBulkOpen(false);
+        router.patch(route('documents.bulk-unpublish'), { folder_ids: selectedFolderIds }, { preserveScroll: true, onSuccess: () => setSelectedItems(new Set()) });
     };
 
     const bulkDelete = () => {
@@ -378,6 +396,8 @@ export default function Manage({
                                 {bulkOpen && <div className="absolute left-0 top-12 z-40 w-60 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl">
                                     <button type="button" disabled={!selectedDocumentIds.length || bulkDownloadProcessing} onClick={bulkDownload} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300">{bulkDownloadProcessing ? 'Creating ZIP…' : '⇩ Download selected files'}</button>
                                     <button type="button" disabled={!selectedDocumentIds.length} onClick={() => { setBulkOpen(false); setBulkTransferOpen(true); }} className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:cursor-not-allowed disabled:text-stone-300">⇄ Transfer selected files</button>
+                                    <button type="button" disabled={!selectedFolderIds.length || selectedDocumentIds.length > 0} onClick={bulkPublish} className="block w-full rounded-lg px-3 py-2.5 text-left text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-stone-300">✓ Publish selected folders</button>
+                                    <button type="button" disabled={!selectedFolderIds.length || selectedDocumentIds.length > 0} onClick={bulkUnpublish} className="block w-full rounded-lg px-3 py-2.5 text-left text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:text-stone-300">↺ Unpublish selected folders</button>
                                     <button type="button" onClick={bulkDelete} className="mt-1 block w-full border-t border-stone-100 rounded-lg px-3 py-2.5 text-left text-red-700 hover:bg-red-50">♜ Delete selected items</button>
                                 </div>}
                             </div>
@@ -387,7 +407,7 @@ export default function Manage({
                         {bulkDownloadError && <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{bulkDownloadError}</div>}
                         <label className="flex items-center gap-2 text-sm text-stone-600">Show
                             <select value={filters.per_page ?? 10} onChange={(event) => updateTable({ per_page: Number(event.target.value) })} className="h-10 rounded-xl border-stone-300 bg-white py-1 pl-3 pr-8 text-sm">
-                                {[10,25,50,100].map((value) => <option key={value} value={value}>{value}</option>)}
+                                {[10,25,50,100,200].map((value) => <option key={value} value={value}>{value}</option>)}
                             </select>
                             entries
                         </label>
@@ -406,7 +426,7 @@ export default function Manage({
                             <table className="min-w-full divide-y divide-stone-100 text-left">
                                 <thead className="bg-stone-50/80">
                                     <tr className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                                        <th className="w-12 px-5 py-3.5 sm:px-6"><input type="checkbox" checked={allVisibleSelected} onChange={(event) => toggleAllVisible(event.target.checked)} aria-label="Select all visible items" className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></th>
+                                        <th className="w-12 px-5 py-3.5 sm:px-6"><input id="documents-all" type="checkbox" checked={allVisibleSelected} onChange={(event) => toggleAllVisible(event.target.checked)} aria-label="Select all visible items" className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /></th>
                                         <th className="px-5 py-3.5"><button type="button" onClick={() => updateTable({ sort: 'name', order: filters.sort === 'name' && filters.order === 'asc' ? 'desc' : 'asc' })} className="font-semibold uppercase tracking-wide hover:text-arms-green">Name ↕</button></th>
                                         <th className="px-5 py-3.5">Type</th>
                                         <th className="hidden px-5 py-3.5 md:table-cell"><button type="button" onClick={() => updateTable({ sort: 'created_at', order: filters.sort === 'created_at' && filters.order === 'asc' ? 'desc' : 'asc' })} className="font-semibold uppercase tracking-wide hover:text-arms-green">Modified date ↕</button></th>
@@ -688,7 +708,7 @@ function FolderRow({ folder, selected, onSelected, onInformation }: { folder: Fo
 }
 function FolderCard({ folder, selected, onSelected, onInformation }: { folder: Folder; selected: boolean; onSelected:(checked:boolean)=>void; onInformation:(target:{name:string;url:string;kind:'folder'|'document'})=>void }) {
     const [menuOpen, setMenuOpen] = useState(false);
-    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.route_key)} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /><PinMarker pinned={folder.is_pinned} /></Link><Link href={route('documents.manage', folder.route_key)} className="min-w-0 flex-1"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} onInformation={onInformation} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
+    return <div className={'group flex min-h-20 items-center gap-3 rounded-xl border px-3 py-3 shadow-sm transition ' + (menuOpen || selected ? 'border-arms-green bg-emerald-50/70 ring-2 ring-emerald-100' : 'border-stone-200 bg-stone-50/70 hover:border-[#b7d9cb] hover:bg-white')}><input type="checkbox" checked={selected} onChange={(event) => onSelected(event.target.checked)} aria-label={'Select ' + folder.name} className="rounded border-stone-300 text-arms-green focus:ring-arms-green" /><Link href={route('documents.manage', folder.route_key)} className="relative grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-emerald-100 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /><PinMarker pinned={folder.is_pinned} /></Link><Link href={route('documents.manage', folder.route_key)} className="min-w-0 flex-1"><div className="flex min-w-0 items-center gap-2"><p className="truncate text-sm font-semibold text-[#073d2f]">{folder.name}</p><span className="documents-grid-badge documents-grid-badge--status shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide" style={{ backgroundColor: folder.is_published === true ? '#059669' : '#fef3c7', color: folder.is_published === true ? '#ffffff' : '#92400e' }}>{folder.is_published === true ? 'Published' : 'Unpublished'}</span></div><p className="mt-0.5 text-xs text-stone-500">{folder.documents_count} {folder.documents_count === 1 ? 'file' : 'files'} · {folder.children_count} subfolders</p></Link><FolderActions folder={folder} onInformation={onInformation} open={menuOpen} onOpenChange={setMenuOpen} /></div>;
 }
 function DocumentThumbnail({ document }: { document: DocumentItem }) {
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
@@ -936,7 +956,7 @@ function FolderActions({ folder, onInformation, open, onOpenChange }: { folder: 
     };
     return <div className="inline-block text-left">
         <button type="button" onClick={toggle} aria-label={'Actions for folder ' + folder.name} className={'rounded-lg px-2 py-1 text-lg leading-none transition ' + (open ? 'bg-emerald-100 text-[#073d2f]' : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')}>⋮</button>
-        {open && <div className="fixed z-[80] w-56 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (folder.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{folder.is_pinned ? 'Unpin' : 'Pin'}</button>}{folder.information_url&&<button type="button" onClick={()=>{onOpenChange(false);onInformation({name:folder.name,url:folder.information_url!,kind:'folder'});}} className="block w-full rounded-lg px-3 py-2 text-left text-arms-green hover:bg-emerald-50">Information</button>}{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.hierarchy_delete_url && <button type="button" onClick={openHierarchyDelete} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50">Delete entire hierarchy</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete empty folder</button>}</div>}
+        {open && <div className="fixed z-[80] w-56 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl" style={{ top: menuPosition.top, left: menuPosition.left }}><Link href={route('documents.manage', folder.route_key)} className="block rounded-lg px-3 py-2 hover:bg-stone-50">Open folder</Link>{folder.pin_url && <button type="button" onClick={togglePin} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left hover:bg-stone-50"><ArmsIcon name="pin" className={'h-4 w-4 ' + (folder.is_pinned ? 'fill-current text-[#a91f1f]' : 'text-stone-500')} />{folder.is_pinned ? 'Unpin' : 'Pin'}</button>}{folder.information_url&&<button type="button" onClick={()=>{onOpenChange(false);onInformation({name:folder.name,url:folder.information_url!,kind:'folder'});}} className="block w-full rounded-lg px-3 py-2 text-left text-arms-green hover:bg-emerald-50">Information</button>}{!folder.is_published && folder.can_publish && folder.publish_url && <button type="button" onClick={() => { onOpenChange(false); router.patch(folder.publish_url!, {}, { preserveScroll: true, onSuccess: () => router.reload({ only: ["folders"] }) }); }} className="block w-full rounded-lg px-3 py-2 text-left font-semibold text-emerald-700 hover:bg-emerald-50">Publish</button>}{folder.is_published && folder.can_unpublish && folder.unpublish_url && <button type="button" onClick={() => { onOpenChange(false); router.patch(folder.unpublish_url!, {}, { preserveScroll: true, onSuccess: () => router.reload({ only: ["folders"] }) }); }} className="block w-full rounded-lg px-3 py-2 text-left font-semibold text-amber-700 hover:bg-amber-50">Unpublish</button>}{folder.rename_url && <button type="button" onClick={() => { setRenameValue(folder.name); onOpenChange(false); setRenameOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left hover:bg-stone-50">Rename</button>}{folder.hierarchy_delete_url && <button type="button" onClick={openHierarchyDelete} className="mt-1 block w-full border-t border-stone-100 px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50">Delete entire hierarchy</button>}{folder.delete_url && <button type="button" onClick={() => { onOpenChange(false); setDeleteOpen(true); }} className="block w-full rounded-lg px-3 py-2 text-left text-red-700 hover:bg-red-50">Delete empty folder</button>}</div>}
         {renameOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><form onSubmit={submitRename} className="w-full max-w-md rounded-2xl bg-white p-6 text-left shadow-2xl"><div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-emerald-50 text-xl text-arms-green">✎</div><h3 className="mt-4 text-center text-xl font-semibold text-[#073d2f]">Rename folder</h3><p className="mt-1 text-center text-sm text-stone-500">Spaces will automatically become underscores. Windows-invalid characters are not allowed.</p><input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} className="mt-5 w-full rounded-xl border-stone-300"/><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setRenameOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2.5 text-sm font-semibold text-white">Rename</button></div></form></div>}
         {deleteOpen && <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4"><div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl"><div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">!</div><h3 className="mt-4 text-xl font-semibold text-[#073d2f]">Delete folder?</h3><p className="mt-2 text-sm text-stone-500">Delete <strong>{folder.name}</strong>? Only empty folders can be deleted.</p><div className="mt-6 flex justify-center gap-3"><button type="button" onClick={() => setDeleteOpen(false)} className="rounded-xl border border-stone-300 px-5 py-2.5 text-sm font-semibold">Cancel</button><button type="button" onClick={remove} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-red-700">Yes, delete</button></div></div></div>}
         {hierarchyOpen && <HierarchyDeleteModal folder={folder} preview={preview} loading={loadingPreview} error={previewError} confirmation={confirmation} deleting={deletingHierarchy} onConfirmationChange={setConfirmation} onClose={() => !deletingHierarchy && setHierarchyOpen(false)} onDelete={destroyHierarchy} />}

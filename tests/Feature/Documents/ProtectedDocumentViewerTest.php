@@ -70,6 +70,75 @@ class ProtectedDocumentViewerTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['user_id' => $user->id, 'event' => 'document.viewed', 'auditable_id' => $image->id]);
     }
 
+    public function test_level_one_can_view_but_cannot_download_the_protected_viewer(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document] = $this->document('View Only PDF', 'pdf', 'application/pdf');
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+
+        $this->actingAs($user)->get(route('documents.viewer', $document))->assertOk();
+        $this->actingAs($user)->get(route('documents.download', $document))->assertForbidden();
+        $this->actingAs($user)->get(route('documents.original', $document))->assertForbidden();
+    }
+
+    public function test_level_two_can_view_and_download_only_the_protected_viewer_copy(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_2);
+        [$document, $viewerPath, $originalPath] = $this->document('Downloadable PDF', 'pdf', 'application/pdf');
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => true,
+        ]);
+
+        $response = $this->actingAs($user)->get(route('documents.download', $document));
+        $response->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('attachment;', (string) $response->headers->get('content-disposition'));
+        $this->assertSame(Storage::disk('documents')->path($viewerPath), $response->baseResponse->getFile()->getPathname());
+        $this->assertNotSame(Storage::disk('documents')->path($originalPath), $response->baseResponse->getFile()->getPathname());
+    }
+
+    public function test_missing_viewer_copy_is_rebuilt_from_a_present_original(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document, $viewerPath] = $this->document('Rebuild Viewer', 'pdf', 'application/pdf');
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+        Storage::disk('documents')->delete($viewerPath);
+
+        $response = $this->actingAs($user)->get(route('documents.viewer', $document));
+        $response->assertOk();
+        $document->refresh();
+        $document->load('latestVersion');
+        $this->assertNotEmpty($document->latestVersion->watermark_path);
+        Storage::disk('documents')->assertExists($document->latestVersion->watermark_path);
+    }
+
+    public function test_missing_original_and_viewer_returns_unavailable_viewer(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document, $viewerPath, $originalPath] = $this->document('Missing Viewer', 'pdf', 'application/pdf');
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+        Storage::disk('documents')->delete([$viewerPath, $originalPath]);
+
+        $this->actingAs($user)->get(route('documents.viewer', $document))->assertStatus(409);
+    }
+
     public function test_unassigned_user_cannot_open_protected_viewer_by_forging_document_url(): void
     {
         $user = $this->userWithRole(Role::LEVEL_1);

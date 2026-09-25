@@ -76,6 +76,31 @@ class BatchDocumentDownloadTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_multiple_selected_level_two_documents_are_downloaded_in_one_zip(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_2);
+        [$first, $second, $third] = $this->documents(['First', 'Second', 'Third']);
+
+        foreach ([$first, $second, $third] as $document) {
+            DocumentAccess::query()->create([
+                'document_id' => $document->id,
+                'user_id' => $user->id,
+                'can_view' => true,
+                'can_download' => true,
+            ]);
+        }
+
+        $response = $this->actingAs($user)->post(route('documents.bulk-download'), [
+            'document_ids' => [$first->id, $second->id, $third->id],
+        ]);
+
+        $response->assertOk()->assertHeader('content-type', 'application/zip');
+        $this->assertDatabaseHas('activity_logs', [
+            'user_id' => $user->id,
+            'event' => 'document.batch_downloaded',
+        ]);
+    }
+
     public function test_level_two_cannot_include_an_unauthorized_document(): void
     {
         $user = $this->userWithRole(Role::LEVEL_2);
@@ -115,7 +140,7 @@ class BatchDocumentDownloadTest extends TestCase
         $this->actingAs($user)->postJson(route('documents.bulk-download'), ['document_ids' => [999999]])
             ->assertUnprocessable()->assertJsonValidationErrors('document_ids.0');
 
-        $this->actingAs($user)->postJson(route('documents.bulk-download'), ['document_ids' => array_fill(0, 51, $document->id)])
+        $this->actingAs($user)->postJson(route('documents.bulk-download'), ['document_ids' => array_fill(0, 101, $document->id)])
             ->assertUnprocessable()->assertJsonValidationErrors('document_ids');
     }
 

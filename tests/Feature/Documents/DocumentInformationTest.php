@@ -52,6 +52,75 @@ class DocumentInformationTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['auditable_type' => Document::class, 'auditable_id' => $document->id, 'event' => 'pin.created']);
     }
 
+    public function test_folder_publish_and_unpublish_updates_manage_state_and_status_badge_source(): void
+    {
+        [$root, $admin] = $this->root();
+        $root->update(['is_published' => false, 'unpublished_by' => $admin->id, 'unpublished_at' => now()]);
+        $child = app(FolderHierarchyService::class)->createChild($root, 'Subfolder', $admin, []);
+        $child->update(['is_published' => false, 'unpublished_by' => $admin->id, 'unpublished_at' => now()]);
+
+        $this->actingAs($admin)->patch(route('documents.folders.publish', $root))->assertRedirect();
+        $this->assertDatabaseHas('folders', ['id' => $root->id, 'is_published' => 1]);
+
+        $this->actingAs($admin)->get(route('documents.manage'))
+            ->assertInertia(fn ($page) => $page->where('folders.data.0.is_published', true));
+
+        $this->actingAs($admin)->patch(route('documents.folders.publish', $child))->assertRedirect();
+        $this->actingAs($admin)->get(route('documents.manage', $root))
+            ->assertInertia(fn ($page) => $page->where('folders.data.0.is_published', true));
+
+        $this->actingAs($admin)->patch(route('documents.folders.unpublish', $root))->assertRedirect();
+        $this->assertDatabaseHas('folders', ['id' => $root->id, 'is_published' => 0]);
+
+        $this->actingAs($admin)->get(route('documents.manage'))
+            ->assertInertia(fn ($page) => $page->where('folders.data.0.is_published', false));
+    }
+
+    public function test_bulk_publish_and_unpublish_selected_folders_preserves_current_policy_checks(): void
+    {
+        [$root, $admin] = $this->root();
+        $first = app(FolderHierarchyService::class)->createChild($root, 'First Folder', $admin, []);
+        $second = app(FolderHierarchyService::class)->createChild($root, 'Second Folder', $admin, []);
+
+        $this->actingAs($admin)
+            ->patch(route('documents.bulk-publish'), ['folder_ids' => [$first->id, $second->id]])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('folders', ['id' => $first->id, 'is_published' => 1]);
+        $this->assertDatabaseHas('folders', ['id' => $second->id, 'is_published' => 1]);
+        $this->assertDatabaseHas('activity_logs', ['auditable_type' => Folder::class, 'auditable_id' => $first->id, 'event' => 'folder.published']);
+        $this->assertDatabaseHas('activity_logs', ['auditable_type' => Folder::class, 'auditable_id' => $second->id, 'event' => 'folder.published']);
+
+        $this->actingAs($admin)
+            ->patch(route('documents.bulk-unpublish'), ['folder_ids' => [$first->id, $second->id]])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('folders', ['id' => $first->id, 'is_published' => 0]);
+        $this->assertDatabaseHas('folders', ['id' => $second->id, 'is_published' => 0]);
+        $this->assertDatabaseHas('activity_logs', ['auditable_type' => Folder::class, 'auditable_id' => $first->id, 'event' => 'folder.unpublished']);
+        $this->assertDatabaseHas('activity_logs', ['auditable_type' => Folder::class, 'auditable_id' => $second->id, 'event' => 'folder.unpublished']);
+    }
+
+    public function test_document_upload_and_bulk_download_accept_the_current_100_item_limit(): void
+    {
+        [$root, $admin] = $this->root();
+
+        $root->update(['is_published' => false, 'unpublished_by' => $admin->id, 'unpublished_at' => now()]);
+        $tooManyFiles = array_map(
+            fn (int $index) => \Illuminate\Http\UploadedFile::fake()->create('file-'.$index.'.pdf', 1, 'application/pdf'),
+            range(1, 101),
+        );
+        $this->actingAs($admin)
+            ->post(route('documents.upload', $root), ['original_files' => $tooManyFiles])
+            ->assertSessionHasErrors('original_files');
+
+        $tooManyDocuments = range(1, 101);
+        $this->actingAs($admin)
+            ->postJson(route('documents.bulk-download'), ['document_ids' => $tooManyDocuments])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('document_ids');
+    }
+
     public function test_admin_can_search_and_grant_then_remove_direct_folder_access(): void
     {
         [$root, $admin] = $this->root();

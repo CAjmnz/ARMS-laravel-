@@ -46,7 +46,7 @@ class FolderManagementController extends Controller
             'order' => in_array($request->input('order'), ['asc', 'desc'], true)
                 ? $request->input('order')
                 : 'asc',
-            'per_page' => in_array((int) $request->input('per_page'), [10, 25, 50, 100], true)
+            'per_page' => in_array((int) $request->input('per_page'), [10, 25, 50, 100, 200], true)
                 ? (int) $request->input('per_page')
                 : 10,
         ];
@@ -77,6 +77,8 @@ class FolderManagementController extends Controller
                 'is_published' => (bool) $item->is_published,
                 'can_publish' => $user->can('publish', $item),
                 'can_unpublish' => $user->can('unpublish', $item),
+                'publish_url' => $user->can('publish', $item) ? route('documents.folders.publish', $item) : null,
+                'unpublish_url' => $user->can('unpublish', $item) ? route('documents.folders.unpublish', $item) : null,
                 'rename_url' => $user->can('update', $item) ? route('documents.folders.rename', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.folders.destroy', $item) : null,
                 'hierarchy_preview_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-preview', $item) : null,
@@ -197,6 +199,22 @@ class FolderManagementController extends Controller
         return back()->with('success', 'The folder was created successfully.');
     }
 
+    public function publish(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $this->authorize('publish', $folder);
+        $hierarchy->publish($folder, $request->user(), ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()]);
+
+        return back()->with('success', 'Folder published successfully.');
+    }
+
+    public function unpublish(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $this->authorize('unpublish', $folder);
+        $hierarchy->unpublish($folder, $request->user(), ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()]);
+
+        return back()->with('success', 'Folder unpublished successfully.');
+    }
+
     public function rename(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse
     {
         $this->authorize('update', $folder);
@@ -269,6 +287,56 @@ class FolderManagementController extends Controller
         });
 
         return redirect()->route('documents.manage')->with('success', 'The complete '.($folder->depth === 0 ? 'Filename' : 'subfolder').' hierarchy was deleted.');
+    }
+
+    public function bulkPublish(Request $request, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $validated = $request->validate([
+            'folder_ids' => ['required', 'array', 'min:1', 'max:5000'],
+            'folder_ids.*' => ['integer', 'distinct', 'exists:folders,id'],
+        ]);
+
+        $folders = Folder::query()->whereIn('id', $validated['folder_ids'])->get();
+        foreach ($folders as $folder) {
+            $this->authorize('publish', $folder);
+            if ($folder->is_published) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['folder_ids' => 'One or more selected folders are already published.']);
+            }
+        }
+
+        foreach ($folders as $folder) {
+            $hierarchy->publish($folder, $request->user(), [
+                'ip_address' => $request->ip(),
+                'user_agent' => (string) $request->userAgent(),
+            ]);
+        }
+
+        return back()->with('success', $folders->count().' selected folder(s) published successfully.');
+    }
+
+    public function bulkUnpublish(Request $request, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $validated = $request->validate([
+            'folder_ids' => ['required', 'array', 'min:1', 'max:5000'],
+            'folder_ids.*' => ['integer', 'distinct', 'exists:folders,id'],
+        ]);
+
+        $folders = Folder::query()->whereIn('id', $validated['folder_ids'])->get();
+        foreach ($folders as $folder) {
+            $this->authorize('unpublish', $folder);
+            if (! $folder->is_published) {
+                throw \Illuminate\Validation\ValidationException::withMessages(['folder_ids' => 'One or more selected folders are already unpublished.']);
+            }
+        }
+
+        foreach ($folders as $folder) {
+            $hierarchy->unpublish($folder, $request->user(), [
+                'ip_address' => $request->ip(),
+                'user_agent' => (string) $request->userAgent(),
+            ]);
+        }
+
+        return back()->with('success', $folders->count().' selected folder(s) unpublished successfully.');
     }
 
     public function bulkDelete(Request $request, FolderHierarchyService $hierarchy): RedirectResponse

@@ -66,6 +66,14 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
         ->name('documents.filenames.store');
     Route::post('/documents/manage/{folder}/folders', [FolderManagementController::class, 'store'])
         ->name('documents.folders.store');
+    Route::patch('/documents/manage/{folder}/publish', [FolderManagementController::class, 'publish'])
+        ->name('documents.folders.publish');
+    Route::patch('/documents/manage/{folder}/unpublish', [FolderManagementController::class, 'unpublish'])
+        ->name('documents.folders.unpublish');
+    Route::patch('/documents/bulk-publish', [FolderManagementController::class, 'bulkPublish'])
+        ->name('documents.bulk-publish');
+    Route::patch('/documents/bulk-unpublish', [FolderManagementController::class, 'bulkUnpublish'])
+        ->name('documents.bulk-unpublish');
     Route::patch('/documents/manage/{folder}', [FolderManagementController::class, 'rename'])
         ->name('documents.folders.rename');
     Route::delete('/documents/manage/{folder}', [FolderManagementController::class, 'destroy'])

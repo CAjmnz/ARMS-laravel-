@@ -39,6 +39,12 @@ class FolderPolicy
 
     public function upload(User $user, Folder $folder): bool
     {
+        // CI3 only permits uploads into unpublished destinations. Keep that
+        // restriction server-side so direct requests cannot bypass the UI.
+        if ($folder->is_published) {
+            return false;
+        }
+
         if ($user->isSuperUser()) {
             return true;
         }
@@ -50,8 +56,9 @@ class FolderPolicy
 
     public function publish(User $user, Folder $folder): bool
     {
-        return $user->isSuperUser()
-            || ($user->roleLevel() === 3 && $folder->unpublished_by === $user->id);
+        // CI3 treats publication status as shared across Level 3 managers:
+        // any authorized manager may publish a globally unpublished path.
+        return $user->isSuperUser() || $user->roleLevel() === 3;
     }
 
     public function unpublish(User $user, Folder $folder): bool
