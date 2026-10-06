@@ -3,6 +3,7 @@
 namespace Tests\Feature\Documents;
 
 use App\Models\Department;
+use App\Models\Document;
 use App\Models\Folder;
 use App\Models\Role;
 use App\Models\Subsidiary;
@@ -85,6 +86,48 @@ class DocumentListingParityTest extends TestCase
             ->where('folders.current_page', 2)
             ->where('folders.per_page', 10)
             ->has('folders.data', 10)
+        );
+    }
+
+    public function test_documents_are_server_paginated_to_200_and_follow_header_sorting(): void
+    {
+        [$admin, $root] = $this->root();
+
+        foreach (range(1, 205) as $index) {
+            Document::query()->create([
+                'folder_id' => $root->id,
+                'title' => sprintf('Document %03d', $index),
+                'status' => 'ready',
+                'created_by' => $admin->id,
+            ]);
+        }
+
+        $this->actingAs($admin)->get(route('documents.manage', [
+            'folder' => $root,
+            'per_page' => 200,
+            'sort' => 'name',
+            'order' => 'asc',
+        ]))->assertOk()->assertInertia(fn ($page) => $page
+            ->where('filters.per_page', 200)
+            ->where('documents.current_page', 1)
+            ->where('documents.last_page', 2)
+            ->where('documents.total', 205)
+            ->where('documents.data.0.name', 'Document 001')
+            ->where('documents.data.199.name', 'Document 200')
+            ->has('documents.data', 200)
+        );
+
+        $this->actingAs($admin)->get(route('documents.manage', [
+            'folder' => $root,
+            'per_page' => 200,
+            'document_page' => 2,
+            'sort' => 'name',
+            'order' => 'desc',
+        ]))->assertOk()->assertInertia(fn ($page) => $page
+            ->where('documents.current_page', 2)
+            ->where('documents.data.0.name', 'Document 005')
+            ->where('documents.data.4.name', 'Document 001')
+            ->has('documents.data', 5)
         );
     }
 

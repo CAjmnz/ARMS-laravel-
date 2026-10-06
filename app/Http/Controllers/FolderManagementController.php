@@ -8,6 +8,7 @@ use App\Models\Folder;
 use App\Models\Subsidiary;
 use App\Models\User;
 use App\Services\DocumentAccessService;
+use App\Services\DocumentFileCleanupService;
 use App\Services\DocumentInformationService;
 use App\Services\FolderHierarchyService;
 use App\Services\PinnedItemsService;
@@ -49,6 +50,7 @@ class FolderManagementController extends Controller
             'per_page' => in_array((int) $request->input('per_page'), [10, 25, 50, 100, 200], true)
                 ? (int) $request->input('per_page')
                 : 10,
+            'document_page' => max(1, (int) $request->input('document_page', 1)),
         ];
 
         $folders = Folder::query()
@@ -103,7 +105,10 @@ class FolderManagementController extends Controller
                 ]),
             ])
             ->orderByDesc('is_pinned')
-            ->latest('updated_at')->get()->map(fn (Document $item) => [
+            ->orderBy($filters['sort'] === 'created_at' ? 'updated_at' : 'title', $filters['order'])
+            ->paginate($filters['per_page'], ['*'], 'document_page', $filters['document_page'])
+            ->withQueryString()
+            ->through(fn (Document $item) => [
                 'id' => $item->id,
                 'route_key' => $item->getRouteKey(),
                 'name' => $item->title,
@@ -121,7 +126,13 @@ class FolderManagementController extends Controller
                 'move_url' => $user->can('move', $item) ? route('documents.move', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.destroy', $item) : null,
                 'information_url' => route('documents.information', $item),
-            ]) : collect();
+            ]) : new \Illuminate\Pagination\LengthAwarePaginator(
+                collect(),
+                0,
+                $filters['per_page'],
+                1,
+                ['path' => $request->url(), 'pageName' => 'document_page']
+            );
 
         return Inertia::render('Documents/Manage', [
             'currentFolder' => $folder ? [
@@ -259,18 +270,22 @@ class FolderManagementController extends Controller
         ]);
     }
 
-    public function destroyHierarchy(Request $request, Folder $folder): RedirectResponse
+    public function destroyHierarchy(Request $request, Folder $folder, DocumentFileCleanupService $cleanup): RedirectResponse
     {
         abort_unless($request->user()->isSuperUser(), 403);
         $this->authorize('delete', $folder);
         $request->validate(['confirmation' => ['required', 'string', 'max:250']]);
         abort_unless(hash_equals($folder->name, (string) $request->input('confirmation')), 422, 'Type the exact folder name to confirm deletion.');
 
-        DB::transaction(function () use ($request, $folder): void {
+        DB::transaction(function () use ($request, $folder, $cleanup): void {
             $folderIds = $this->hierarchyFolderIds($folder);
-            $documentCount = Document::query()->whereIn('folder_id', $folderIds)->count();
+            $documents = Document::query()->whereIn('folder_id', $folderIds)->get();
+            $documentCount = $documents->count();
             $folderCount = $folderIds->count();
-            Document::query()->whereIn('folder_id', $folderIds)->delete();
+            foreach ($documents as $document) {
+                $cleanup->cleanup($document);
+                $document->delete();
+            }
             Folder::query()->whereIn('id', $folderIds)->delete();
 
             \App\Models\ActivityLog::query()->create([
@@ -339,7 +354,7 @@ class FolderManagementController extends Controller
         return back()->with('success', $folders->count().' selected folder(s) unpublished successfully.');
     }
 
-    public function bulkDelete(Request $request, FolderHierarchyService $hierarchy): RedirectResponse
+    public function bulkDelete(Request $request, FolderHierarchyService $hierarchy, DocumentFileCleanupService $cleanup): RedirectResponse
     {
         $validated = $request->validate([
             // The UI submits controlled batches, but accept a full visible selection
@@ -359,6 +374,7 @@ class FolderManagementController extends Controller
             $this->authorize('delete', $document);
         }
         foreach ($documents as $document) {
+            $cleanup->cleanup($document);
             $document->delete();
         }
 

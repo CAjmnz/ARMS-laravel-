@@ -69,6 +69,24 @@ export default function AuthenticatedLayout({
             });
         }
 
+        if (auth.permissions.includes('receiving.manage')) {
+            items.push({
+                active: route().current('receiving.*') ?? false,
+                href: route('receiving.index'),
+                icon: 'upload',
+                label: 'Receiving',
+            });
+        }
+
+        if (auth.permissions.includes('scanning-keepsafe.manage')) {
+            items.push({
+                active: route().current('scanning-keepsafe.*') ?? false,
+                href: route('scanning-keepsafe.index'),
+                icon: 'document',
+                label: 'Scanning / Keepsafe',
+            });
+        }
+
         if (auth.roles.includes('super-administrator')) {
             items.push({
                 active:

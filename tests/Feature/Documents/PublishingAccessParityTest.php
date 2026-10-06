@@ -88,6 +88,63 @@ class PublishingAccessParityTest extends TestCase
         $this->actingAs($user)->get(route('documents.show', $document))->assertForbidden();
     }
 
+    public function test_lower_level_users_cannot_view_or_download_documents_in_unpublished_folders(): void
+    {
+        [$folder] = $this->folder();
+        $folder->update(['is_published' => false, 'unpublished_at' => now()]);
+        $document = Document::query()->create([
+            'folder_id' => $folder->id,
+            'title' => 'Unpublished Document',
+            'status' => 'ready',
+        ]);
+
+        foreach ([Role::LEVEL_1, Role::LEVEL_2] as $role) {
+            $user = $this->userWithRole($role);
+            DocumentAccess::query()->create([
+                'document_id' => $document->id,
+                'user_id' => $user->id,
+                'can_view' => true,
+                'can_download' => true,
+            ]);
+
+            $this->assertFalse($user->can('view', $document));
+            $this->assertFalse($user->can('download', $document));
+            $this->assertFalse($user->can('view', $folder));
+        }
+    }
+
+    public function test_published_document_under_unpublished_ancestor_remains_accessible(): void
+    {
+        [$root] = $this->folder();
+        $root->update(['is_published' => false, 'unpublished_at' => now()]);
+        $child = Folder::query()->create([
+            'parent_id' => $root->id,
+            'subsidiary_id' => $root->subsidiary_id,
+            'department_id' => $root->department_id,
+            'name' => 'Published Child',
+            'slug' => 'published-child-'.uniqid(),
+            'depth' => 1,
+            'is_published' => true,
+            'created_by' => $root->created_by,
+        ]);
+        $document = Document::query()->create([
+            'folder_id' => $child->id,
+            'title' => 'Published Child Document',
+            'status' => 'ready',
+        ]);
+        $user = $this->userWithRole(Role::LEVEL_1);
+        DocumentAccess::query()->create([
+            'folder_id' => $root->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+
+        $this->assertTrue($user->can('view', $root));
+        $this->assertTrue($user->can('view', $child));
+        $this->assertTrue($user->can('view', $document));
+    }
+
     public function test_level_four_has_full_document_access_and_delete_authority(): void
     {
         [$folder] = $this->folder();

@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\BatchDocumentDownloadService;
 use App\Services\DocumentAccessService;
 use App\Services\DocumentInformationService;
+use App\Services\DocumentFileCleanupService;
 use App\Services\DocumentUploadService;
 use App\Services\FolderHierarchyService;
 use Illuminate\Http\RedirectResponse;
@@ -223,12 +224,13 @@ class DocumentController extends Controller
         return back()->with('success', $documents->count().' document(s) transferred successfully.');
     }
 
-    public function destroy(Request $request, Document $document): RedirectResponse
+    public function destroy(Request $request, Document $document, DocumentFileCleanupService $cleanup): RedirectResponse
     {
         $this->authorize('delete', $document);
+        $cleanup->cleanup($document);
         $folder = $document->folder;
         $document->delete();
-        $this->audit($request, 'document.deleted', $document, null, ['soft_deleted' => true]);
+        $this->audit($request, 'document.deleted', $document, null, ['soft_deleted' => true, 'physical_files_removed' => true]);
 
         return back()->with('success', 'Document was deleted.');
     }

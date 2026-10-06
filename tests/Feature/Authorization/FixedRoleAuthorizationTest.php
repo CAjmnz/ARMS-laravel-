@@ -58,7 +58,7 @@ class FixedRoleAuthorizationTest extends TestCase
     {
         $subsidiary = Subsidiary::query()->create(['code' => 'HO', 'name' => 'Head Office', 'status' => 'active']);
         $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
-        $folder = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Assigned', 'slug' => 'assigned']);
+        $folder = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Assigned', 'slug' => 'assigned', 'is_published' => true]);
         $document = Document::query()->create(['folder_id' => $folder->id, 'title' => 'Assigned Document']);
         $levelOne = $this->userWithRole(Role::LEVEL_1);
         $levelTwo = $this->userWithRole(Role::LEVEL_2);
@@ -75,12 +75,12 @@ class FixedRoleAuthorizationTest extends TestCase
         $this->assertTrue($levelTwo->can('download', $document));
     }
 
-    public function test_level_two_folder_tag_grants_descendant_documents_and_navigation_even_when_unpublished(): void
+    public function test_level_two_folder_tag_grants_descendant_documents_and_navigation_when_published(): void
     {
         $subsidiary = Subsidiary::query()->create(['code' => 'HO', 'name' => 'Head Office', 'status' => 'active']);
         $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
-        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Tagged Root', 'slug' => 'tagged-root', 'depth' => 0, 'is_published' => false]);
-        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => false]);
+        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Tagged Root', 'slug' => 'tagged-root', 'depth' => 0, 'is_published' => true]);
+        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => true]);
         $document = Document::query()->create(['folder_id' => $child->id, 'title' => 'Tagged Descendant']);
         $levelTwo = $this->userWithRole(Role::LEVEL_2);
 
@@ -102,7 +102,7 @@ class FixedRoleAuthorizationTest extends TestCase
         $subsidiary = Subsidiary::query()->create(['code' => 'HO', 'name' => 'Head Office', 'status' => 'active']);
         $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
         $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Root', 'slug' => 'root', 'depth' => 0, 'is_published' => false]);
-        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => false]);
+        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child', 'slug' => 'child', 'depth' => 1, 'is_published' => true]);
         $tagged = Document::query()->create(['folder_id' => $child->id, 'title' => 'Tagged File']);
         $sibling = Document::query()->create(['folder_id' => $child->id, 'title' => 'Private Sibling']);
         $levelTwo = $this->userWithRole(Role::LEVEL_2);

@@ -104,6 +104,28 @@ class ProtectedDocumentViewerTest extends TestCase
         $this->assertNotSame(Storage::disk('documents')->path($originalPath), $response->baseResponse->getFile()->getPathname());
     }
 
+    public function test_level_four_can_download_the_original_but_lower_roles_cannot(): void
+    {
+        [$document] = $this->document('Original Download', 'pdf', 'application/pdf');
+
+        $levelThree = $this->userWithRole(Role::LEVEL_3);
+        $levelTwo = $this->userWithRole(Role::LEVEL_2);
+        foreach ([$levelThree, $levelTwo] as $user) {
+            DocumentAccess::query()->create([
+                'document_id' => $document->id,
+                'user_id' => $user->id,
+                'can_view' => true,
+                'can_download' => true,
+            ]);
+            $this->actingAs($user)->get(route('documents.original', $document))->assertForbidden();
+        }
+
+        $levelFour = $this->userWithRole(Role::LEVEL_4);
+        $response = $this->actingAs($levelFour)->get(route('documents.original', $document));
+        $response->assertOk()->assertHeader('content-type', 'application/pdf');
+        $this->assertStringStartsWith('attachment;', (string) $response->headers->get('content-disposition'));
+    }
+
     public function test_missing_viewer_copy_is_rebuilt_from_a_present_original(): void
     {
         $user = $this->userWithRole(Role::LEVEL_1);
@@ -176,7 +198,7 @@ class ProtectedDocumentViewerTest extends TestCase
         );
         $folder = Folder::query()->firstOrCreate(
             ['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'slug' => 'viewer-tests'],
-            ['name' => 'Viewer Tests', 'depth' => 0],
+            ['name' => 'Viewer Tests', 'depth' => 0, 'is_published' => true],
         );
 
         $document = Document::query()->create([

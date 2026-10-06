@@ -18,6 +18,8 @@ use App\Http\Controllers\UserManagementController;
 use App\Http\Controllers\UserPinController;
 use App\Http\Controllers\SystemSettingsController;
 use App\Http\Controllers\UserPortalController;
+use App\Http\Controllers\ReceivingController;
+use App\Http\Controllers\ScanningKeepsafeController;
 use App\Http\Controllers\SystemBackupController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\DB;
@@ -59,6 +61,16 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
+
+    Route::get('/receiving', [ReceivingController::class, 'index'])->middleware('permission:receiving.manage')->name('receiving.index');
+    Route::post('/receiving', [ReceivingController::class, 'store'])->middleware('permission:receiving.manage')->name('receiving.store');
+    Route::get('/receiving/{receivingRecord}', [ReceivingController::class, 'show'])->middleware('permission:receiving.manage')->name('receiving.show');
+    Route::patch('/receiving/{receivingRecord}/status', [ReceivingController::class, 'updateStatus'])->middleware('permission:receiving.manage')->name('receiving.status');
+
+    Route::get('/scanning-keepsafe', [ScanningKeepsafeController::class, 'index'])->middleware('permission:scanning-keepsafe.manage')->name('scanning-keepsafe.index');
+    Route::post('/scanning-keepsafe', [ScanningKeepsafeController::class, 'store'])->middleware('permission:scanning-keepsafe.manage')->name('scanning-keepsafe.store');
+    Route::get('/scanning-keepsafe/{scanningKeepsafeRequest}', [ScanningKeepsafeController::class, 'show'])->middleware('permission:scanning-keepsafe.manage')->name('scanning-keepsafe.show');
+    Route::patch('/scanning-keepsafe/{scanningKeepsafeRequest}', [ScanningKeepsafeController::class, 'update'])->middleware('permission:scanning-keepsafe.manage')->name('scanning-keepsafe.update');
 
     Route::get('/documents/manage/{folder?}', [FolderManagementController::class, 'index'])
         ->name('documents.manage');
@@ -137,6 +149,8 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/administration/system', [SystemSettingsController::class, 'index'])->middleware('permission:system-settings.manage')->name('system.index');
     Route::patch('/administration/system/settings', [SystemSettingsController::class, 'updateSettings'])->middleware('permission:system-settings.manage')->name('system.settings.update');
     Route::post('/administration/system/file-types', [SystemSettingsController::class, 'storeFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.store');
+    Route::patch('/administration/system/file-types/bulk-toggle', [SystemSettingsController::class, 'bulkToggleFileTypes'])->middleware('permission:system-settings.manage')->name('system.file-types.bulk-toggle');
+    Route::delete('/administration/system/file-types/bulk-delete', [SystemSettingsController::class, 'bulkDestroyFileTypes'])->middleware('permission:system-settings.manage')->name('system.file-types.bulk-delete');
     Route::patch('/administration/system/file-types/{fileType}', [SystemSettingsController::class, 'updateFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.update');
     Route::patch('/administration/system/file-types/{fileType}/toggle', [SystemSettingsController::class, 'toggleFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.toggle');
     Route::delete('/administration/system/file-types/{fileType}', [SystemSettingsController::class, 'destroyFileType'])->middleware('permission:system-settings.manage')->name('system.file-types.destroy');

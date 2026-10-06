@@ -62,6 +62,7 @@ class DashboardTest extends TestCase
                 ->component('Dashboard')
                 ->where('summary.documents', 1)
                 ->where('summary.folders', 2)
+                ->where('summary.pending', 1)
                 ->where('summary.users', 1)
                 ->has('activity', 6)
                 ->has('recentActivities')

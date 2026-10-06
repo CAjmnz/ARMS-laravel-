@@ -30,18 +30,31 @@ class DocumentAccessService
             return [];
         }
 
-        $folders = Folder::query()->get(['id', 'parent_id']);
+        $folders = Folder::query()->get(['id', 'parent_id', 'is_published']);
         $byId = $folders->keyBy('id');
         $children = $folders->groupBy(fn (Folder $folder) => $folder->parent_id ?? 0);
         $visible = [];
 
         foreach ($this->activeFolderGrantIds($user, 'can_view') as $folderId) {
-            $this->addAncestors($folderId, $byId, $visible);
-            $this->addDescendants($folderId, $children, $visible);
+            $grantedBranch = [];
+            $this->addDescendants($folderId, $children, $grantedBranch);
+
+            foreach (array_keys($grantedBranch) as $branchFolderId) {
+                $branchFolder = $byId->get((int) $branchFolderId);
+                if (! $branchFolder || ! $branchFolder->is_published) {
+                    continue;
+                }
+
+                // CI3 allows unpublished ancestors only as navigation containers
+                // leading to an authorized Published target.
+                $this->addAncestors((int) $branchFolderId, $byId, $visible);
+                $visible[(int) $branchFolderId] = true;
+            }
         }
 
         $directDocumentFolderIds = Document::query()
             ->whereIn('id', $this->activeDocumentGrantIds($user, 'can_view'))
+            ->whereHas('folder', fn ($query) => $query->where('is_published', true))
             ->pluck('folder_id');
 
         foreach ($directDocumentFolderIds as $folderId) {
@@ -66,7 +79,12 @@ class DocumentAccessService
             return [];
         }
 
-        $directDocumentIds = $this->activeDocumentGrantIds($user, $ability);
+        $directDocumentIds = Document::query()
+            ->whereIn('id', $this->activeDocumentGrantIds($user, $ability))
+            ->whereHas('folder', fn ($query) => $query->where('is_published', true))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
         $folderGrantIds = $this->activeFolderGrantIds($user, $ability);
 
         if ($folderGrantIds === []) {
@@ -81,8 +99,13 @@ class DocumentAccessService
             $this->addDescendants($folderId, $children, $grantedFolderIds);
         }
 
+        $publishedFolderIds = Folder::query()
+            ->whereIn('id', array_keys($grantedFolderIds))
+            ->where('is_published', true)
+            ->pluck('id');
+
         $inheritedDocumentIds = Document::query()
-            ->whereIn('folder_id', array_keys($grantedFolderIds))
+            ->whereIn('folder_id', $publishedFolderIds)
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

@@ -75,8 +75,8 @@ class UserPinTest extends TestCase
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Documents/Manage')
-                ->where('documents.0.id', $document->id)
-                ->where('documents.0.is_pinned', true));
+                ->where('documents.data.0.id', $document->id)
+                ->where('documents.data.0.is_pinned', true));
 
         $this->actingAs($second)
             ->get(route('documents.manage', $folder))
@@ -84,8 +84,8 @@ class UserPinTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->component('Documents/Manage')
                 ->where('documentStats.pins', 0)
-                ->where('documents.0.id', $document->id)
-                ->where('documents.0.is_pinned', false));
+                ->where('documents.data.0.id', $document->id)
+                ->where('documents.data.0.is_pinned', false));
     }
 
     public function test_dashboard_returns_only_the_authenticated_users_pins(): void

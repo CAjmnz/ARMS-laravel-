@@ -22,6 +22,12 @@ class DocumentUploadService
             abort(403);
         }
 
+        if ($viewers !== [] && count($viewers) !== count($originals)) {
+            throw ValidationException::withMessages([
+                'viewer_files' => 'The number of viewer files must match the number of original files.',
+            ]);
+        }
+
         $results = [];
         foreach ($originals as $index => $original) {
             $viewer = $viewers[$index] ?? null;

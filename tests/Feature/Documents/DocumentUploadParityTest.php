@@ -52,6 +52,51 @@ class DocumentUploadParityTest extends TestCase
         ]);
     }
 
+    public function test_delete_removes_original_and_viewer_files_while_preserving_soft_deleted_record(): void
+    {
+        [$folder, $admin] = $this->folder(false);
+        $this->actingAs($admin)->post(route('documents.upload', $folder), [
+            'original_files' => [UploadedFile::fake()->createWithContent('delete-me.pdf', '%PDF original')],
+            'viewer_files' => [UploadedFile::fake()->createWithContent('delete-me.pdf', '%PDF viewer')],
+        ])->assertRedirect();
+
+        $document = Document::query()->firstOrFail();
+        $version = $document->latestVersion;
+        $originalPath = $version->storage_path;
+        $viewerPath = $version->watermark_path;
+
+        $this->assertTrue(Storage::disk('documents')->exists($originalPath));
+        $this->assertTrue(Storage::disk('documents')->exists($viewerPath));
+
+        $this->actingAs($admin)->delete(route('documents.destroy', $document))->assertRedirect();
+
+        $this->assertSoftDeleted('documents', ['id' => $document->id]);
+        $this->assertFalse(Storage::disk('documents')->exists($originalPath));
+        $this->assertFalse(Storage::disk('documents')->exists($viewerPath));
+        $this->assertDatabaseHas('activity_logs', [
+            'auditable_type' => Document::class,
+            'auditable_id' => $document->id,
+            'event' => 'document.deleted',
+        ]);
+    }
+
+    public function test_viewer_file_count_must_match_original_file_count(): void
+    {
+        [$folder, $admin] = $this->folder(false);
+
+        $this->actingAs($admin)->post(route('documents.upload', $folder), [
+            'original_files' => [
+                UploadedFile::fake()->createWithContent('one.pdf', '%PDF one'),
+                UploadedFile::fake()->createWithContent('two.pdf', '%PDF two'),
+            ],
+            'viewer_files' => [
+                UploadedFile::fake()->createWithContent('one.pdf', '%PDF viewer'),
+            ],
+        ])->assertRedirect()->assertSessionHasErrors('viewer_files');
+
+        $this->assertSame(0, Document::query()->count());
+    }
+
     public function test_multiple_uploads_create_multiple_documents(): void
     {
         [$folder, $admin] = $this->folder(false);

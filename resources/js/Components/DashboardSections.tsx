@@ -6,6 +6,7 @@ export type DashboardSummary = {
     documents: number;
     folders: number;
     online: number;
+    pending: number;
     users: number;
 };
 

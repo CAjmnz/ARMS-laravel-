@@ -57,8 +57,8 @@ class UserPortalController extends Controller
 
         $folders = Folder::query()
             ->whereIn('id', $visibleFolderIds)
-            ->where('parent_id', $folder?->id)
             ->when($search !== '', fn ($query) => $query->where('name', 'like', '%'.$search.'%'))
+            ->when($search === '', fn ($query) => $query->where('parent_id', $folder?->id))
             ->withCount([
                 'children as visible_children_count' => fn ($query) => $query->whereIn('id', $visibleFolderIds),
                 'documents as visible_documents_count' => fn ($query) => $query->whereIn('id', $visibleDocumentIds),
@@ -80,11 +80,11 @@ class UserPortalController extends Controller
                 'information_url' => route('documents.folders.information', $item),
             ]);
 
-        $documents = $folder
-            ? Document::query()
-                ->where('folder_id', $folder->id)
-                ->whereIn('id', $visibleDocumentIds)
-                ->when($search !== '', fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
+        $documents = Document::query()
+            ->whereIn('id', $visibleDocumentIds)
+            ->when($folder && $search === '', fn ($query) => $query->where('folder_id', $folder->id))
+            ->when($search !== '', fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
+            ->when($folder === null && $search === '', fn ($query) => $query->limit(200))
                 ->with([
                     'latestVersion' => fn ($query) => $query->select([
                         'document_versions.id',
@@ -118,20 +118,19 @@ class UserPortalController extends Controller
                         ? route('documents.download', $item)
                         : null,
                     'information_url' => route('documents.information', $item),
-                ])
-            : collect();
+                ]);
 
         return Inertia::render('Portal/Documents', [
             'summary' => [
                 'visible_documents' => count($visibleDocumentIds),
                 'can_download' => $user->roleLevel() === 2 && $user->hasPermission('documents.download'),
             ],
-            'currentFolder' => $folder ? [
+            'currentFolder' => $search !== '' ? null : ($folder ? [
                 'id' => $folder->id,
                 'route_key' => $folder->getRouteKey(),
                 'name' => $folder->name,
-            ] : null,
-            'breadcrumbs' => $folder ? $this->breadcrumbs($folder) : [],
+            ] : null),
+            'breadcrumbs' => $search !== '' ? [] : ($folder ? $this->breadcrumbs($folder) : []),
             'folders' => $folders,
             'documents' => $documents,
             'filters' => ['search' => $search],

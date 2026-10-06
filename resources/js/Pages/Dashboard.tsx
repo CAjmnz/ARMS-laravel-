@@ -253,6 +253,7 @@ export default function Dashboard({account,activity,greeting,lastLoginAt,summary
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Dashboard summary">
                 <DashboardStatCard icon="document" label="Total Documents" value={summary.documents} description="Current document records" />
                 <DashboardStatCard icon="folder" label="Total Folders" value={summary.folders} description="Folders in the records hierarchy" />
+                <DashboardStatCard icon="folder" label="Pending" value={summary.pending} description="Unpublished folders awaiting publication" />
                 <DashboardStatCard icon="users" label="Total Users" value={summary.users} description="Registered system accounts" />
                 <DashboardStatCard icon="users" label="Online Now" value={summary.online} description="Active in the last 15 minutes" />
             </section>

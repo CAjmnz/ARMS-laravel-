@@ -235,7 +235,7 @@ class BatchDocumentDownloadTest extends TestCase
         );
         $folder = Folder::query()->firstOrCreate(
             ['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'slug' => 'batch'],
-            ['name' => 'Batch', 'depth' => 0],
+            ['name' => 'Batch', 'depth' => 0, 'is_published' => true],
         );
 
         return collect($titles)->map(function (string $title, int $index) use ($folder): Document {

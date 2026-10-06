@@ -28,6 +28,7 @@ class DashboardStatisticsService
             'summary' => [
                 'documents' => Document::query()->count(),
                 'folders' => Folder::query()->count(),
+                'pending' => Folder::query()->where('is_published', false)->count(),
                 'users' => User::query()->count(),
                 'online' => $this->activeSessionCount($now),
             ],

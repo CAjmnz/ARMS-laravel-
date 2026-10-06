@@ -125,6 +125,35 @@ class SystemSettingsController extends Controller
         return back()->with('success', $fileType->is_active ? 'File type enabled.' : 'File type disabled.');
     }
 
+    public function bulkToggleFileTypes(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'file_type_ids' => ['required', 'array', 'min:1'],
+            'file_type_ids.*' => ['integer', 'exists:file_types,id'],
+            'is_active' => ['required', 'boolean'],
+        ]);
+
+        FileType::query()->whereIn('id', $validated['file_type_ids'])->update([
+            'is_active' => $validated['is_active'],
+        ]);
+
+        return back()->with('success', $validated['is_active']
+            ? 'Selected file types enabled.'
+            : 'Selected file types disabled.');
+    }
+
+    public function bulkDestroyFileTypes(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'file_type_ids' => ['required', 'array', 'min:1'],
+            'file_type_ids.*' => ['integer', 'exists:file_types,id'],
+        ]);
+
+        FileType::query()->whereIn('id', $validated['file_type_ids'])->delete();
+
+        return back()->with('success', 'Selected file types deleted successfully.');
+    }
+
     public function destroyFileType(FileType $fileType): RedirectResponse
     {
         $fileType->delete();

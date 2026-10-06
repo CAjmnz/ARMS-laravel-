@@ -46,7 +46,8 @@ class UserPortalDocumentsTest extends TestCase
                 ->has('folders', 1)
                 ->where('folders.0.id', $root->id)
                 ->where('folders.0.name', 'Authorized Root')
-                ->has('documents', 0)
+                ->has('documents', 1)
+                ->where('documents.0.id', $authorized->id)
                 ->where('summary.visible_documents', 1));
     }
 
@@ -97,6 +98,63 @@ class UserPortalDocumentsTest extends TestCase
                 ->where('documents.0.download_url', fn ($url) => is_string($url) && str_ends_with($url, '/download')));
     }
 
+    public function test_root_shows_authorized_documents_and_search_is_global_across_authorized_folders(): void
+    {
+        [$root, $child, $authorized] = $this->records();
+        $otherChild = Folder::query()->create([
+            'parent_id' => $root->id,
+            'subsidiary_id' => $root->subsidiary_id,
+            'department_id' => $root->department_id,
+            'name' => 'Second Folder',
+            'slug' => 'second-folder',
+            'depth' => 1,
+            'is_published' => true,
+        ]);
+        $other = Document::query()->create(['folder_id' => $otherChild->id, 'title' => 'Searchable File', 'status' => 'ready']);
+        DocumentVersion::query()->create([
+            'document_id' => $other->id,
+            'version_number' => 1,
+            'original_filename' => 'Searchable File.pdf',
+            'storage_disk' => 'documents',
+            'storage_path' => 'originals/'.$other->id.'.pdf',
+            'watermark_path' => 'viewers/'.$other->id.'.pdf',
+            'preview_path' => 'viewers/'.$other->id.'.pdf',
+            'mime_type' => 'application/pdf',
+            'extension' => 'pdf',
+            'size_bytes' => 1200,
+            'sha256' => hash('sha256', (string) $other->id),
+            'scan_status' => 'ready',
+        ]);
+
+        $user = $this->user(Role::LEVEL_1);
+        foreach ([$authorized, $other] as $document) {
+            DocumentAccess::query()->create([
+                'document_id' => $document->id,
+                'user_id' => $user->id,
+                'can_view' => true,
+                'can_download' => false,
+            ]);
+        }
+
+        $this->actingAs($user)
+            ->get(route('portal.documents'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('documents', 2)
+                ->where('documents.0.id', $authorized->id)
+                ->where('documents.1.id', $other->id));
+
+        $this->actingAs($user)
+            ->get(route('portal.documents', ['folder' => $child, 'search' => 'Searchable']))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('currentFolder', null)
+                ->has('breadcrumbs', 0)
+                ->has('documents', 1)
+                ->where('documents.0.id', $other->id)
+                ->has('folders', 0));
+    }
+
     public function test_user_cannot_open_unrelated_folder_by_forging_url(): void
     {
         [$root, , $authorized] = $this->records();
@@ -114,7 +172,7 @@ class UserPortalDocumentsTest extends TestCase
         $this->actingAs($user)->get(route('portal.documents', $root))->assertOk();
     }
 
-    public function test_portal_search_is_limited_to_current_authorized_location(): void
+    public function test_portal_search_is_global_across_the_authorized_tree(): void
     {
         [, $child, $authorized, $hidden] = $this->records();
         $user = $this->user(Role::LEVEL_2);
@@ -132,14 +190,16 @@ class UserPortalDocumentsTest extends TestCase
             ->assertInertia(fn (Assert $page) => $page
                 ->where('filters.search', 'Hidden')
                 ->has('documents', 0)
-                ->has('folders', 0));
+                ->has('folders', 0)
+                ->where('currentFolder', null));
 
         $this->actingAs($user)
             ->get(route('portal.documents', ['folder' => $child, 'search' => 'Assigned']))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->has('documents', 1)
-                ->where('documents.0.id', $authorized->id));
+                ->where('documents.0.id', $authorized->id)
+                ->where('currentFolder', null));
     }
 
     /** @return array{Folder, Folder, Document, Document} */
@@ -147,8 +207,8 @@ class UserPortalDocumentsTest extends TestCase
     {
         $subsidiary = Subsidiary::query()->create(['code' => 'A', 'name' => 'Alturas', 'status' => 'active']);
         $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'RMS', 'name' => 'Records', 'status' => 'active']);
-        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Authorized Root', 'slug' => 'authorized-root', 'depth' => 0]);
-        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child Folder', 'slug' => 'child-folder', 'depth' => 1]);
+        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Authorized Root', 'slug' => 'authorized-root', 'depth' => 0, 'is_published' => true]);
+        $child = Folder::query()->create(['parent_id' => $root->id, 'subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Child Folder', 'slug' => 'child-folder', 'depth' => 1, 'is_published' => true]);
         $authorized = Document::query()->create(['folder_id' => $child->id, 'title' => 'Assigned File', 'status' => 'ready']);
         $hidden = Document::query()->create(['folder_id' => $child->id, 'title' => 'Hidden File', 'status' => 'ready']);
 
@@ -177,7 +237,7 @@ class UserPortalDocumentsTest extends TestCase
     {
         $subsidiary = Subsidiary::query()->create(['code' => 'B', 'name' => 'Other Subsidiary', 'status' => 'active']);
         $department = Department::query()->create(['subsidiary_id' => $subsidiary->id, 'code' => 'OPS', 'name' => 'Operations', 'status' => 'active']);
-        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Private Root', 'slug' => 'private-root', 'depth' => 0]);
+        $root = Folder::query()->create(['subsidiary_id' => $subsidiary->id, 'department_id' => $department->id, 'name' => 'Private Root', 'slug' => 'private-root', 'depth' => 0, 'is_published' => true]);
 
         return [$root];
     }

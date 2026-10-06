@@ -26,6 +26,8 @@ class RolePermissionSeeder extends Seeder
             ['View activity logs', 'activity-logs.view', 'audit'],
             ['Manage system settings', 'system-settings.manage', 'system'],
             ['Manage backups', 'backups.manage', 'system'],
+            ['Manage receiving records', 'receiving.manage', 'records'],
+            ['Manage scanning and keepsafe requests', 'scanning-keepsafe.manage', 'records'],
         ];
 
         foreach ($permissions as [$name, $slug, $group]) {
@@ -49,6 +51,8 @@ class RolePermissionSeeder extends Seeder
                     'documents.transfer',
                     'documents.access.manage',
                     'users.manage',
+                    'receiving.manage',
+                    'scanning-keepsafe.manage',
                 ],
             ],
             'records-officer' => [
