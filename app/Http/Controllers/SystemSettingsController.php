@@ -28,11 +28,15 @@ class SystemSettingsController extends Controller
         ]);
 
         $fileSearch = trim($request->string('file_search')->toString());
+        $filePerPage = in_array((int) $request->integer('file_per_page'), [10, 25, 50, 100], true)
+            ? (int) $request->integer('file_per_page')
+            : 10;
         $fileTypes = FileType::query()
             ->when($fileSearch !== '', fn ($q) => $q->where('extension', 'like', '%'.$fileSearch.'%'))
             ->orderBy('extension')
-            ->get()
-            ->map(fn ($item) => [
+            ->paginate($filePerPage, ['*'], 'file_page')
+            ->withQueryString()
+            ->through(fn ($item) => [
                 'id' => $item->id,
                 'route_key' => $item->getRouteKey(),
                 'extension' => $item->extension,
@@ -71,7 +75,12 @@ class SystemSettingsController extends Controller
             'settings' => $settings,
             'fileTypes' => $fileTypes,
             'logs' => $logs,
-            'filters' => ['file_search' => $fileSearch, 'log_search' => $logSearch, 'per_page' => $perPage],
+            'filters' => [
+                'file_search' => $fileSearch,
+                'file_per_page' => $filePerPage,
+                'log_search' => $logSearch,
+                'per_page' => $perPage,
+            ],
         ]);
     }
 

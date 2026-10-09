@@ -43,6 +43,12 @@ export default function PinnedItemsDropdown({ count, onInformation }: { count: n
     const wrapper = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
+        const handleDropdownOpen = (event: Event) => {
+            if ((event as CustomEvent<string>).detail !== 'pinned-items') {
+                setOpen(false);
+                setActionOpen(null);
+            }
+        };
         const close = (event: MouseEvent) => {
             if (wrapper.current && !wrapper.current.contains(event.target as Node)) setOpen(false);
         };
@@ -51,9 +57,11 @@ export default function PinnedItemsDropdown({ count, onInformation }: { count: n
         };
         document.addEventListener('mousedown', close);
         window.addEventListener('keydown', escape);
+        window.addEventListener('arms:dropdown-open', handleDropdownOpen);
         return () => {
             document.removeEventListener('mousedown', close);
             window.removeEventListener('keydown', escape);
+            window.removeEventListener('arms:dropdown-open', handleDropdownOpen);
         };
     }, []);
 
@@ -106,7 +114,17 @@ export default function PinnedItemsDropdown({ count, onInformation }: { count: n
     return <div ref={wrapper} className="relative min-w-[170px]">
         <button
             type="button"
-            onClick={() => setOpen((value) => !value)}
+            onClick={() => {
+                const nextOpen = !open;
+                if (nextOpen) {
+                    window.dispatchEvent(
+                        new CustomEvent('arms:dropdown-open', {
+                            detail: 'pinned-items',
+                        }),
+                    );
+                }
+                setOpen(nextOpen);
+            }}
             aria-expanded={open}
             className={'group flex min-h-[68px] w-full items-center gap-3 rounded-xl border bg-white px-3.5 py-2 text-left shadow-[0_4px_14px_rgba(6,59,45,0.05)] transition ' + (open ? 'border-[#0a865e] ring-2 ring-emerald-100' : 'border-[#d7e7df] hover:border-[#98ccb7]')}
         >

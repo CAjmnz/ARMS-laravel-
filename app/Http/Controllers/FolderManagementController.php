@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\Department;
 use App\Models\Document;
 use App\Models\Folder;
+use App\Models\OrganizationLocation;
+use App\Models\OrganizationSubdivision;
 use App\Models\Subsidiary;
 use App\Models\User;
 use App\Services\DocumentAccessService;
@@ -143,8 +145,18 @@ class FolderManagementController extends Controller
                 'documents_count' => $documents->count(),
                 'can_manage' => $user->can('update', $folder),
                 'can_upload' => $user->can('upload', $folder),
+                'is_pinned' => $folder->pins()->where('user_id', $user->id)->exists(),
+                'pin_url' => route('documents.folders.pin', $folder),
+                'is_published' => (bool) $folder->is_published,
+                'can_publish' => $user->can('publish', $folder),
+                'can_unpublish' => $user->can('unpublish', $folder),
+                'publish_url' => $user->can('publish', $folder) ? route('documents.folders.publish', $folder) : null,
+                'unpublish_url' => $user->can('unpublish', $folder) ? route('documents.folders.unpublish', $folder) : null,
+                'rename_url' => $user->can('update', $folder) ? route('documents.folders.rename', $folder) : null,
+                'delete_url' => $user->can('delete', $folder) ? route('documents.folders.destroy', $folder) : null,
                 'hierarchy_preview_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-preview', $folder) : null,
                 'hierarchy_delete_url' => $user->isSuperUser() ? route('documents.folders.hierarchy-destroy', $folder) : null,
+                'information_url' => route('documents.folders.information', $folder),
             ] : null,
             'breadcrumbs' => $folder
                 ? array_map(fn (Folder $item) => ['id' => $item->id, 'route_key' => $item->getRouteKey(), 'name' => $item->name], $hierarchy->breadcrumbs($folder))
@@ -182,7 +194,15 @@ class FolderManagementController extends Controller
             ],
             'canCreateRoot' => $user->isSuperUser(),
             'organizations' => $user->isSuperUser()
-                ? Subsidiary::query()->with('departments:id,subsidiary_id,name')->orderBy('name')->get(['id', 'name'])
+                ? Subsidiary::query()
+                    ->with([
+                        'organizationDivisions' => fn ($query) => $query->orderBy('name'),
+                        'organizationDivisions.subdivisions' => fn ($query) => $query->orderBy('name'),
+                        'organizationDivisions.subdivisions.departments' => fn ($query) => $query->orderBy('name'),
+                        'organizationDivisions.subdivisions.departments.locations' => fn ($query) => $query->orderBy('name'),
+                    ])
+                    ->orderBy('name')
+                    ->get(['id', 'name'])
                 : [],
         ]);
     }
@@ -208,6 +228,27 @@ class FolderManagementController extends Controller
         ]);
 
         return back()->with('success', 'The folder was created successfully.');
+    }
+
+    public function bulkStore(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse
+    {
+        $this->authorize('create', $folder);
+
+        $validated = $request->validate([
+            'names' => ['required', 'array', 'min:1', 'max:100'],
+            'names.*' => ['required', 'string', 'max:250'],
+        ]);
+
+        DB::transaction(function () use ($validated, $folder, $hierarchy, $request): void {
+            foreach ($validated['names'] as $name) {
+                $hierarchy->createChild($folder, $name, $request->user(), [
+                    'ip_address' => $request->ip(),
+                    'user_agent' => (string) $request->userAgent(),
+                ]);
+            }
+        });
+
+        return back()->with('success', count($validated['names']) . ' folders were created successfully.');
     }
 
     public function publish(Request $request, Folder $folder, FolderHierarchyService $hierarchy): RedirectResponse
@@ -430,22 +471,54 @@ class FolderManagementController extends Controller
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:250'],
             'subsidiary_id' => ['required', 'integer', 'exists:subsidiaries,id'],
+            'division_id' => ['required', 'integer', 'exists:organization_divisions,id'],
+            'subdivision_id' => ['required', 'integer', 'exists:organization_subdivisions,id'],
             'department_id' => ['required', 'integer', 'exists:departments,id'],
+            'location_id' => ['required', 'integer', 'exists:organization_locations,id'],
         ]);
 
-        $departmentMatchesSubsidiary = Department::query()
+        $departmentMatches = Department::query()
             ->whereKey($validated['department_id'])
+            ->where('subsidiary_id', $validated['subsidiary_id'])
+            ->where('subdivision_id', $validated['subdivision_id'])
+            ->exists();
+
+        $subdivisionMatches = OrganizationSubdivision::query()
+            ->whereKey($validated['subdivision_id'])
+            ->where('division_id', $validated['division_id'])
+            ->exists();
+
+        $divisionMatches = \App\Models\OrganizationDivision::query()
+            ->whereKey($validated['division_id'])
             ->where('subsidiary_id', $validated['subsidiary_id'])
             ->exists();
 
-        if (! $departmentMatchesSubsidiary) {
-            return back()->withErrors(['department_id' => 'Select a department belonging to the selected subsidiary.']);
+        $locationMatches = OrganizationLocation::query()
+            ->whereKey($validated['location_id'])
+            ->where('department_id', $validated['department_id'])
+            ->where('subdivision_id', $validated['subdivision_id'])
+            ->exists();
+
+        if (! $divisionMatches) {
+            return back()->withErrors(['division_id' => 'Select a division belonging to the selected subsidiary.']);
+        }
+        if (! $subdivisionMatches) {
+            return back()->withErrors(['subdivision_id' => 'Select a sub-division belonging to the selected division.']);
+        }
+        if (! $departmentMatches) {
+            return back()->withErrors(['department_id' => 'Select a department belonging to the selected sub-division.']);
+        }
+        if (! $locationMatches) {
+            return back()->withErrors(['location_id' => 'Select a location belonging to the selected department.']);
         }
 
         $hierarchy->createRoot(
             $validated['name'],
             $validated['subsidiary_id'],
+            $validated['division_id'],
+            $validated['subdivision_id'],
             $validated['department_id'],
+            $validated['location_id'],
             $request->user(),
             ['ip_address' => $request->ip(), 'user_agent' => (string) $request->userAgent()],
         );

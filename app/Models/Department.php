@@ -13,11 +13,21 @@ class Department extends Model
 {
     use EncryptsRouteKey, HasFactory, SoftDeletes;
 
-    protected $fillable = ['subsidiary_id', 'code', 'name', 'status'];
+    protected $fillable = ['subsidiary_id', 'subdivision_id', 'code', 'name', 'status'];
 
     public function subsidiary(): BelongsTo
     {
         return $this->belongsTo(Subsidiary::class);
+    }
+
+    public function subdivision(): BelongsTo
+    {
+        return $this->belongsTo(OrganizationSubdivision::class, 'subdivision_id');
+    }
+
+    public function locations(): HasMany
+    {
+        return $this->hasMany(OrganizationLocation::class);
     }
 
     public function users(): HasMany

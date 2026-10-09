@@ -14,7 +14,15 @@ class DocumentInformationService
 {
     public function folder(Folder $folder, User $viewer): array
     {
-        $folder->loadMissing(['creator:id,name,email,position', 'subsidiary:id,name', 'department:id,name']);
+        $folder->loadMissing([
+            'creator:id,name,email,position',
+            'subsidiary:id,name',
+            'division:id,name',
+            'subdivision:id,name',
+            'department:id,name',
+            'location:id,name',
+            'location.groups:id,name',
+        ]);
         $folder->loadCount(['children', 'documents']);
 
         return [
@@ -24,6 +32,7 @@ class DocumentInformationService
             'size' => null,
             'description' => null,
             'path' => $this->folderPath($folder),
+            'organization' => $this->organizationPayload($folder),
             'created_at' => $folder->created_at?->toIso8601String(),
             'created_by' => $this->person($folder->creator),
             'updated_at' => $folder->updated_at?->toIso8601String(),
@@ -43,7 +52,16 @@ class DocumentInformationService
 
     public function document(Document $document, User $viewer): array
     {
-        $document->loadMissing(['creator:id,name,email,position', 'folder', 'latestVersion.uploader:id,name,email,position']);
+        $document->loadMissing([
+            'creator:id,name,email,position',
+            'folder.subsidiary:id,name',
+            'folder.division:id,name',
+            'folder.subdivision:id,name',
+            'folder.department:id,name',
+            'folder.location:id,name',
+            'folder.location.groups:id,name',
+            'latestVersion.uploader:id,name,email,position',
+        ]);
         $version = $document->latestVersion;
 
         return [
@@ -54,6 +72,7 @@ class DocumentInformationService
             'size' => $version?->size_bytes,
             'description' => $document->description,
             'path' => array_merge($this->folderPath($document->folder), [$document->title]),
+            'organization' => $this->organizationPayload($document->folder),
             'created_at' => $document->created_at?->toIso8601String(),
             'created_by' => $this->person($document->creator),
             'uploaded_by' => $this->person($version?->uploader),
@@ -216,6 +235,29 @@ class DocumentInformationService
             ->with('user:id,name,email,position')
             ->first();
         return $this->person($log?->user);
+    }
+
+    private function organizationPayload(?Folder $folder): array
+    {
+        if (! $folder) {
+            return [
+                'subsidiary' => null,
+                'division' => null,
+                'subdivision' => null,
+                'location' => null,
+                'groups' => [],
+                'department' => null,
+            ];
+        }
+
+        return [
+            'subsidiary' => $folder->subsidiary?->name,
+            'division' => $folder->division?->name,
+            'subdivision' => $folder->subdivision?->name,
+            'location' => $folder->location?->name,
+            'groups' => $folder->location?->groups->pluck('name')->values()->all() ?? [],
+            'department' => $folder->department?->name,
+        ];
     }
 
     private function person(?User $user): ?array

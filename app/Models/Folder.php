@@ -16,7 +16,10 @@ class Folder extends Model
     protected $fillable = [
         'parent_id',
         'subsidiary_id',
+        'division_id',
+        'subdivision_id',
         'department_id',
+        'location_id',
         'name',
         'slug',
         'depth',
@@ -71,8 +74,23 @@ class Folder extends Model
         return $this->belongsTo(Subsidiary::class);
     }
 
+    public function division(): BelongsTo
+    {
+        return $this->belongsTo(OrganizationDivision::class);
+    }
+
+    public function subdivision(): BelongsTo
+    {
+        return $this->belongsTo(OrganizationSubdivision::class);
+    }
+
     public function department(): BelongsTo
     {
         return $this->belongsTo(Department::class);
+    }
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(OrganizationLocation::class);
     }
 }

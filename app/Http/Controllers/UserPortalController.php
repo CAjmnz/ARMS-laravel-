@@ -55,7 +55,10 @@ class UserPortalController extends Controller
             ? $access->authorizedDocumentIds($user, 'can_download')
             : [];
 
-        $folders = Folder::query()
+        $folderPerPage = in_array((int) $request->integer('folder_per_page'), [10, 25, 50, 100], true) ? (int) $request->integer('folder_per_page') : 10;
+        $documentPerPage = in_array((int) $request->integer('document_per_page'), [10, 25, 50, 100], true) ? (int) $request->integer('document_per_page') : 10;
+
+        $folderPaginator = Folder::query()
             ->whereIn('id', $visibleFolderIds)
             ->when($search !== '', fn ($query) => $query->where('name', 'like', '%'.$search.'%'))
             ->when($search === '', fn ($query) => $query->where('parent_id', $folder?->id))
@@ -65,8 +68,9 @@ class UserPortalController extends Controller
             ])
             ->withExists(['pins as is_pinned' => fn ($query) => $query->where('user_id', $user->id)])
             ->orderBy('name')
-            ->get()
-            ->map(fn (Folder $item) => [
+            ->paginate($folderPerPage, ['*'], 'folder_page')
+            ->withQueryString()
+            ->through(fn (Folder $item) => [
                 'id' => $item->id,
                 'route_key' => $item->getRouteKey(),
                 'name' => $item->name,
@@ -80,7 +84,7 @@ class UserPortalController extends Controller
                 'information_url' => route('documents.folders.information', $item),
             ]);
 
-        $documents = Document::query()
+        $documentPaginator = Document::query()
             ->whereIn('id', $visibleDocumentIds)
             ->when($folder && $search === '', fn ($query) => $query->where('folder_id', $folder->id))
             ->when($search !== '', fn ($query) => $query->where('title', 'like', '%'.$search.'%'))
@@ -101,8 +105,9 @@ class UserPortalController extends Controller
                 ])
                 ->withExists(['pins as is_pinned' => fn ($query) => $query->where('user_id', $user->id)])
                 ->orderBy('title')
-                ->get()
-                ->map(fn (Document $item) => [
+                ->paginate($documentPerPage, ['*'], 'document_page')
+                ->withQueryString()
+                ->through(fn (Document $item) => [
                     'id' => $item->id,
                     'route_key' => $item->getRouteKey(),
                     'name' => $item->title,
@@ -131,9 +136,29 @@ class UserPortalController extends Controller
                 'name' => $folder->name,
             ] : null),
             'breadcrumbs' => $search !== '' ? [] : ($folder ? $this->breadcrumbs($folder) : []),
-            'folders' => $folders,
-            'documents' => $documents,
-            'filters' => ['search' => $search],
+            'folders' => $folderPaginator->items(),
+            'documents' => $documentPaginator->items(),
+            'folderPagination' => [
+                'current_page' => $folderPaginator->currentPage(),
+                'last_page' => $folderPaginator->lastPage(),
+                'total' => $folderPaginator->total(),
+                'from' => $folderPaginator->firstItem(),
+                'to' => $folderPaginator->lastItem(),
+                'links' => $folderPaginator->linkCollection()->toArray(),
+            ],
+            'documentPagination' => [
+                'current_page' => $documentPaginator->currentPage(),
+                'last_page' => $documentPaginator->lastPage(),
+                'total' => $documentPaginator->total(),
+                'from' => $documentPaginator->firstItem(),
+                'to' => $documentPaginator->lastItem(),
+                'links' => $documentPaginator->linkCollection()->toArray(),
+            ],
+            'filters' => [
+                'search' => $search,
+                'folder_per_page' => $folderPerPage,
+                'document_per_page' => $documentPerPage,
+            ],
         ]);
     }
 

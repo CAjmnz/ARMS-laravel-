@@ -92,7 +92,7 @@ export default function AuthenticatedLayout({
                 active:
                     (route().current('administration.subsidiaries.*') ?? false) ||
                     (route().current('administration.departments.*') ?? false),
-                href: route('administration.subsidiaries.index'),
+                href: route('administration.organization.index'),
                 icon: 'building',
                 label: 'Organization',
             });

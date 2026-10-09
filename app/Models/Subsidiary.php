@@ -14,6 +14,11 @@ class Subsidiary extends Model
 
     protected $fillable = ['code', 'name', 'status'];
 
+    public function organizationDivisions(): HasMany
+    {
+        return $this->hasMany(OrganizationDivision::class);
+    }
+
     public function departments(): HasMany
     {
         return $this->hasMany(Department::class);

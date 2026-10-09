@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Inertia\Inertia;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnforceSessionTimeout
@@ -17,7 +18,13 @@ class EnforceSessionTimeout
             Auth::logout();
             $request->session()->invalidate();
             $request->session()->regenerateToken();
-            return redirect()->route('login')->with('status', 'Your session expired due to inactivity.');
+            $request->session()->flash('status', 'Your session expired due to inactivity.');
+
+            if ($request->header('X-Inertia')) {
+                return Inertia::location(route('login'));
+            }
+
+            return redirect()->route('login');
         }
 
         $request->session()->put('arms_last_activity', time());

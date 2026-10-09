@@ -91,10 +91,32 @@ interface PinnedSearchPage {
     total: number;
 }
 
+interface OrganizationLocation {
+    id: number;
+    name: string;
+    department_id?: number | null;
+}
+interface OrganizationDepartment {
+    id: number;
+    name: string;
+    subsidiary_id: number;
+    subdivision_id?: number | null;
+    locations: OrganizationLocation[];
+}
+interface OrganizationSubdivision {
+    id: number;
+    name: string;
+    departments: OrganizationDepartment[];
+}
+interface OrganizationDivision {
+    id: number;
+    name: string;
+    subdivisions: OrganizationSubdivision[];
+}
 interface Organization {
     id: number;
     name: string;
-    departments: { id: number; name: string; subsidiary_id: number }[];
+    organization_divisions: OrganizationDivision[];
 }
 
 interface Props {
@@ -168,6 +190,26 @@ function PinMarker({ pinned }: { pinned?: boolean }) {
     );
 }
 
+const DROPDOWN_OPEN_EVENT = 'arms:dropdown-open';
+
+const notifyDropdownOpen = (id: string) => {
+    window.dispatchEvent(new CustomEvent(DROPDOWN_OPEN_EVENT, { detail: id }));
+};
+
+function useExclusiveDropdown(id: string, setOpen: (open: boolean) => void) {
+    useEffect(() => {
+        const handleDropdownOpen = (event: Event) => {
+            if ((event as CustomEvent<string>).detail !== id) {
+                setOpen(false);
+            }
+        };
+
+        window.addEventListener(DROPDOWN_OPEN_EVENT, handleDropdownOpen);
+        return () =>
+            window.removeEventListener(DROPDOWN_OPEN_EVENT, handleDropdownOpen);
+    }, [id, setOpen]);
+}
+
 export default function Manage({
     currentFolder,
     documentStats,
@@ -183,16 +225,21 @@ export default function Manage({
     uploadFolders,
 }: Props) {
     const [creating, setCreating] = useState(false);
+    const [bulkFolderMode, setBulkFolderMode] = useState(false);
+    const [bulkFolderNames, setBulkFolderNames] = useState('');
     const [newOpen, setNewOpen] = useState(false);
     const [uploadOpen, setUploadOpen] = useState(false);
     const [folderUploadOpen, setFolderUploadOpen] = useState(false);
     const [inlineUploadOpen, setInlineUploadOpen] = useState(false);
     const [inlineDragActive, setInlineDragActive] = useState(false);
     const [uploadFolderId, setUploadFolderId] = useState('');
+    const [uploadBatchProgress, setUploadBatchProgress] = useState(0);
     const [view, setView] = useState<'list' | 'grid'>('grid');
     const [viewingDocument, setViewingDocument] = useState<DocumentItem | null>(
         null,
     );
+    const [viewingSelectedDocuments, setViewingSelectedDocuments] =
+        useState<DocumentItem[] | null>(null);
     const autoOpenedDocument = useRef<string | null>(null);
     const [informationTarget, setInformationTarget] = useState<{
         name: string;
@@ -201,6 +248,8 @@ export default function Manage({
     } | null>(null);
     const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
     const [bulkOpen, setBulkOpen] = useState(false);
+    const [currentFolderActionsOpen, setCurrentFolderActionsOpen] =
+        useState(false);
     const [bulkTransferOpen, setBulkTransferOpen] = useState(false);
     const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
     const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -208,7 +257,21 @@ export default function Manage({
     const [bulkDestinationId, setBulkDestinationId] = useState('');
     const [bulkDownloadProcessing, setBulkDownloadProcessing] = useState(false);
     const [bulkDownloadError, setBulkDownloadError] = useState('');
-    const form = useForm({ name: '', subsidiary_id: '', department_id: '' });
+
+    useExclusiveDropdown('manage-new', setNewOpen);
+    useExclusiveDropdown('manage-bulk', setBulkOpen);
+    useExclusiveDropdown(
+        'manage-current-folder-actions',
+        setCurrentFolderActionsOpen,
+    );
+    const form = useForm({
+        name: '',
+        subsidiary_id: '',
+        division_id: '',
+        subdivision_id: '',
+        department_id: '',
+        location_id: '',
+    });
     const uploadForm = useForm({
         original_files: [] as File[],
         viewer_files: [] as File[],
@@ -218,6 +281,14 @@ export default function Manage({
         viewer_files: [] as File[],
     });
     const itemCount = folders.data.length + documents.data.length;
+    const bulkFolderPreview = useMemo(
+        () =>
+            bulkFolderNames
+                .split(/\r?\n/)
+                .map((name) => name.trim())
+                .filter(Boolean),
+        [bulkFolderNames],
+    );
     const visibleKeys = useMemo(
         () => [
             ...folders.data.map((item) => `folder:${item.id}`),
@@ -253,13 +324,26 @@ export default function Manage({
             {},
         );
     }, [uploadFolders]);
-    const departments = useMemo(
+    const selectedOrganization = useMemo(
         () =>
             organizations.find(
                 (item) => String(item.id) === form.data.subsidiary_id,
-            )?.departments ?? [],
+            ),
         [form.data.subsidiary_id, organizations],
     );
+    const divisions = selectedOrganization?.organization_divisions ?? [];
+    const selectedDivision = divisions.find(
+        (item) => String(item.id) === form.data.division_id,
+    );
+    const subdivisions = selectedDivision?.subdivisions ?? [];
+    const selectedSubdivision = subdivisions.find(
+        (item) => String(item.id) === form.data.subdivision_id,
+    );
+    const departments = selectedSubdivision?.departments ?? [];
+    const selectedDepartment = departments.find(
+        (item) => String(item.id) === form.data.department_id,
+    );
+    const locations = selectedDepartment?.locations ?? [];
 
     useEffect(() => {
         setSelectedItems(new Set());
@@ -288,6 +372,7 @@ export default function Manage({
 
     const closeDocumentViewer = () => {
         setViewingDocument(null);
+        setViewingSelectedDocuments(null);
         const url = new URL(window.location.href);
         if (url.searchParams.has('open_document')) {
             url.searchParams.delete('open_document');
@@ -302,6 +387,8 @@ export default function Manage({
     const openCreate = () => {
         form.clearErrors();
         form.reset();
+        setBulkFolderMode(false);
+        setBulkFolderNames('');
         setCreating(true);
     };
 
@@ -329,27 +416,107 @@ export default function Manage({
         return base.trim().replace(/\s+/g, '_') + extension.toLowerCase();
     };
 
-    const submitUpload = (event: FormEvent) => {
+    const submitUpload = async (event: FormEvent) => {
         event.preventDefault();
         const destinationKey = canChooseUploadDestination
             ? uploadFolders.find(
                   (folder) => String(folder.id) === uploadFolderId,
               )?.route_key
             : currentFolder?.route_key;
-        if (!destinationKey) return;
-        uploadForm.post(route('documents.upload', destinationKey), {
-            preserveScroll: true,
-            forceFormData: true,
-            onSuccess: () => {
-                uploadForm.reset();
-                setUploadFolderId('');
-                setUploadOpen(false);
-            },
-        });
+        if (!destinationKey || !uploadForm.data.original_files.length) return;
+
+        uploadForm.clearErrors();
+
+        // PHP is currently configured with max_file_uploads=20. Because an
+        // upload can contain both an original and its optional viewer file,
+        // keep each request at or below that server limit instead of silently
+        // losing files when 55+ documents are selected at once.
+        const originalFiles = uploadForm.data.original_files;
+        const viewerFiles = uploadForm.data.viewer_files;
+        const hasViewerFiles = viewerFiles.length > 0;
+        const filesPerBatch = hasViewerFiles ? 10 : 20;
+        const totalBatches = Math.ceil(originalFiles.length / filesPerBatch);
+
+        setUploadBatchProgress(0);
+
+        try {
+            for (
+                let batchIndex = 0;
+                batchIndex < totalBatches;
+                batchIndex += 1
+            ) {
+                setUploadBatchProgress(batchIndex + 1);
+                const start = batchIndex * filesPerBatch;
+                const originals = originalFiles.slice(
+                    start,
+                    start + filesPerBatch,
+                );
+                const viewers = hasViewerFiles
+                    ? viewerFiles.slice(start, start + filesPerBatch)
+                    : [];
+
+                await new Promise<void>((resolve, reject) => {
+                    uploadForm.transform(() => ({
+                        original_files: originals,
+                        viewer_files: viewers,
+                    }));
+
+                    uploadForm.post(route('documents.upload', destinationKey), {
+                        preserveScroll: true,
+                        forceFormData: true,
+                        onSuccess: () => resolve(),
+                        onError: (errors) => reject(errors),
+                    });
+                });
+            }
+
+            uploadForm.reset();
+            setUploadFolderId('');
+            setUploadBatchProgress(0);
+            setUploadOpen(false);
+        } catch {
+            setUploadBatchProgress(0);
+        }
     };
 
     const submit = (event: FormEvent) => {
         event.preventDefault();
+
+        if (!isRoot && bulkFolderMode) {
+            const names = bulkFolderNames
+                .split(/\r?\n/)
+                .map((name) => name.trim())
+                .filter(Boolean);
+
+            if (!names.length) {
+                form.setError('name', 'Enter at least one folder name.');
+                return;
+            }
+
+            if (names.length > 100) {
+                form.setError(
+                    'name',
+                    'You can add a maximum of 100 folders at a time.',
+                );
+                return;
+            }
+
+            form.clearErrors();
+            form.transform(() => ({ names }));
+            form.post(
+                route('documents.folders.bulk-store', currentFolder.route_key),
+                {
+                    preserveScroll: true,
+                    onSuccess: () => {
+                        form.reset();
+                        setBulkFolderNames('');
+                        setBulkFolderMode(false);
+                        setCreating(false);
+                    },
+                },
+            );
+            return;
+        }
 
         if (isRoot) {
             form.post(route('documents.filenames.store'), {
@@ -586,24 +753,6 @@ export default function Manage({
             <Head title="Documents" />
 
             <section className="mx-auto max-w-7xl px-5 py-7 sm:px-8 lg:px-10">
-                <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
-                    <label className="relative block min-w-0 flex-1">
-                        <ArmsIcon
-                            name="folder"
-                            className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-stone-400"
-                        />
-                        <input
-                            defaultValue={filters.search}
-                            onChange={(event) =>
-                                updateTable({ search: event.target.value })
-                            }
-                            placeholder="Search in Document Management"
-                            aria-label="Search in Document Management"
-                            className="h-11 w-full rounded-xl border-stone-200 bg-stone-50 py-2 pl-12 pr-4 text-sm text-stone-800 placeholder:text-stone-400 focus:border-arms-green focus:bg-white focus:ring-arms-green"
-                        />
-                    </label>
-                </div>
-
                 <nav
                     aria-label="Document path"
                     className="mt-6 flex flex-wrap items-center gap-1 text-sm"
@@ -643,7 +792,23 @@ export default function Manage({
                                     : 'Folders and documents in this location'}
                             </p>
                         </div>
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center gap-3">
+                            {!pinnedSearchMode && currentFolder && (
+                                <FolderActions
+                                    folder={currentFolder}
+                                    onInformation={setInformationTarget}
+                                    open={currentFolderActionsOpen}
+                                    onOpenChange={(open) => {
+                                        if (open) {
+                                            notifyDropdownOpen(
+                                                'manage-current-folder-actions',
+                                            );
+                                        }
+                                        setCurrentFolderActionsOpen(open);
+                                    }}
+                                    variant="header"
+                                />
+                            )}
                             <span className="text-sm text-stone-500">
                                 {pinnedSearchMode
                                     ? (pinnedSearch?.total ?? 0)
@@ -737,9 +902,15 @@ export default function Manage({
                                     <div className="relative shrink-0">
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setNewOpen((open) => !open)
-                                            }
+                                            onClick={() => {
+                                                const nextOpen = !newOpen;
+                                                if (nextOpen) {
+                                                    notifyDropdownOpen(
+                                                        'manage-new',
+                                                    );
+                                                }
+                                                setNewOpen(nextOpen);
+                                            }}
                                             aria-expanded={newOpen}
                                             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-arms-green px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-[#033b2d]"
                                         >
@@ -785,9 +956,7 @@ export default function Manage({
                                                         type="button"
                                                         onClick={() => {
                                                             setNewOpen(false);
-                                                            setUploadOpen(
-                                                                true,
-                                                            );
+                                                            setUploadOpen(true);
                                                         }}
                                                         className="w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50"
                                                     >
@@ -820,9 +989,15 @@ export default function Manage({
                                 <div className="relative">
                                     <button
                                         type="button"
-                                        onClick={() =>
-                                            setBulkOpen((open) => !open)
-                                        }
+                                        onClick={() => {
+                                            const nextOpen = !bulkOpen;
+                                            if (nextOpen) {
+                                                notifyDropdownOpen(
+                                                    'manage-bulk',
+                                                );
+                                            }
+                                            setBulkOpen(nextOpen);
+                                        }}
                                         disabled={!selectedItems.size}
                                         className="inline-flex h-10 items-center gap-2 rounded-xl border border-stone-300 bg-white px-4 text-sm font-semibold text-stone-700 shadow-sm hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-45"
                                     >
@@ -831,6 +1006,22 @@ export default function Manage({
                                     </button>
                                     {bulkOpen && (
                                         <div className="absolute left-0 top-12 z-40 w-60 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl">
+                                            <button
+                                                type="button"
+                                                disabled={!selectedDocumentIds.length}
+                                                onClick={() => {
+                                                    const selectedDocuments = selectedDocumentIds
+                                                        .map((id) => documents.data.find((item) => item.id === id))
+                                                        .filter((item): item is DocumentItem => Boolean(item));
+                                                    if (!selectedDocuments.length) return;
+                                                    setViewingSelectedDocuments(selectedDocuments);
+                                                    setViewingDocument(selectedDocuments[0]);
+                                                    setBulkOpen(false);
+                                                }}
+                                                className="block w-full rounded-lg px-3 py-2.5 text-left font-semibold text-emerald-800 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:text-stone-300"
+                                            >
+                                                ▣ View selected documents
+                                            </button>
                                             <button
                                                 type="button"
                                                 disabled={
@@ -910,6 +1101,24 @@ export default function Manage({
                                 {bulkDownloadError}
                             </div>
                         )}
+
+                        <label className="relative block w-full min-w-0 sm:ml-auto sm:w-80 lg:w-96">
+                            <ArmsIcon
+                                name="folder"
+                                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-stone-400"
+                            />
+                            <input
+                                defaultValue={filters.search}
+                                onChange={(event) =>
+                                    updateTable({
+                                        search: event.target.value,
+                                    })
+                                }
+                                placeholder="Search in Document Management"
+                                aria-label="Search in Document Management"
+                                className="h-11 w-full rounded-xl border-stone-200 bg-stone-50 py-2 pl-12 pr-4 text-sm text-stone-800 placeholder:text-stone-400 focus:border-arms-green focus:bg-white focus:ring-arms-green"
+                            />
+                        </label>
 
                         <label className="flex items-center gap-2 text-sm text-stone-600">
                             Show
@@ -1101,7 +1310,7 @@ export default function Manage({
                                             {documents.total}
                                         </span>
                                     </div>
-                                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                                    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5">
                                         {documents.data.map((document) => (
                                             <DocumentCard
                                                 key={'document-' + document.id}
@@ -1177,7 +1386,7 @@ export default function Manage({
             </section>
 
             {bulkDeleteOpen && (
-                <div className="fixed inset-0 z-[70] grid place-items-center bg-[#012a21]/45 p-4">
+                <div className="fixed inset-0 z-[70] grid place-items-center bg-[#012a21]/45 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">
                             !
@@ -1218,7 +1427,7 @@ export default function Manage({
             )}
 
             {bulkTransferOpen && (
-                <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4">
+                <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4 backdrop-blur-sm">
                     <form
                         onSubmit={submitBulkTransfer}
                         className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
@@ -1278,10 +1487,10 @@ export default function Manage({
             )}
 
             {uploadOpen && (
-                <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4">
+                <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4 backdrop-blur-sm">
                     <form
                         onSubmit={submitUpload}
-                        className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl"
+                        className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
                     >
                         <h2 className="text-lg font-semibold text-[#073d2f]">
                             Upload New Documents
@@ -1340,7 +1549,7 @@ export default function Manage({
                                 </span>
                             </div>
                         )}
-                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                        <div className="mt-5 grid grid-cols-2 gap-4">
                             <label
                                 onDragOver={(event) => event.preventDefault()}
                                 onDrop={(event) =>
@@ -1355,7 +1564,7 @@ export default function Manage({
                                     Drag and drop original files here
                                 </span>
                                 <span className="mt-1 block text-xs font-normal text-stone-500">
-                                    or click to browse · up to 30 files
+                                    or click to browse · up to 100 files
                                 </span>
                                 <input
                                     type="file"
@@ -1393,7 +1602,7 @@ export default function Manage({
                                 </span>
                                 <span className="mt-1 block text-xs font-normal text-stone-500">
                                     Optional · same order as originals · up to
-                                    30 files
+                                    100 files
                                 </span>
                                 <input
                                     type="file"
@@ -1464,23 +1673,83 @@ export default function Manage({
                             <button
                                 disabled={
                                     uploadForm.processing ||
+                                    uploadBatchProgress > 0 ||
                                     !uploadForm.data.original_files.length ||
                                     (canChooseUploadDestination &&
                                         !uploadFolderId)
                                 }
                                 className="rounded-xl bg-arms-green px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
                             >
-                                Upload documents
+                                {uploadBatchProgress > 0
+                                    ? 'Uploading batch ' +
+                                      uploadBatchProgress +
+                                      ' of ' +
+                                      Math.ceil(
+                                          uploadForm.data.original_files
+                                              .length /
+                                              (uploadForm.data.viewer_files
+                                                  .length > 0
+                                                  ? 10
+                                                  : 20),
+                                      ) +
+                                      '…'
+                                    : 'Upload documents'}
                             </button>
                         </div>
                     </form>
                 </div>
             )}
 
+            {uploadBatchProgress > 0 && (
+                <div className="fixed bottom-6 right-6 z-[120] w-[min(24rem,calc(100vw-2rem))] rounded-2xl border border-emerald-200 bg-white p-4 shadow-2xl ring-1 ring-emerald-100">
+                    <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-arms-green">
+                            <span className="inline-block h-5 w-5 animate-spin rounded-full border-2 border-emerald-200 border-t-arms-green" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <p className="text-sm font-bold text-stone-800">
+                                Uploading documents…
+                            </p>
+                            <p className="mt-1 text-xs text-stone-500">
+                                Batch {uploadBatchProgress} of{' '}
+                                {Math.ceil(
+                                    uploadForm.data.original_files.length /
+                                        (uploadForm.data.viewer_files.length > 0
+                                            ? 10
+                                            : 20),
+                                )}{' '}
+                                is being uploaded. Please wait.
+                            </p>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-stone-100">
+                                <div
+                                    className="h-full rounded-full bg-arms-green transition-all duration-300"
+                                    style={{
+                                        width: `${Math.min(
+                                            100,
+                                            (uploadBatchProgress /
+                                                Math.ceil(
+                                                    uploadForm.data
+                                                        .original_files.length /
+                                                        (uploadForm.data
+                                                            .viewer_files
+                                                            .length > 0
+                                                            ? 10
+                                                            : 20),
+                                                )) *
+                                                100,
+                                        )}%`,
+                                    }}
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {viewingDocument && (
                 <LegacyDocumentViewer
                     document={viewingDocument}
-                    documents={documents.data}
+                    documents={viewingSelectedDocuments ?? documents.data}
                     destinations={uploadFolders}
                     folderPath={[
                         'Documents',
@@ -1495,119 +1764,395 @@ export default function Manage({
             />
 
             {creating && (
-                <div className="fixed inset-0 z-50 grid place-items-center bg-[#012a21]/45 p-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#012a21]/55 p-4 backdrop-blur-md">
                     <form
                         onSubmit={submit}
-                        className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+                        className="w-full max-w-xl overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-2xl"
                     >
-                        <h2 className="text-lg font-semibold text-[#073d2f]">
-                            {isRoot ? 'Add new filename' : 'New folder'}
-                        </h2>
-                        <p className="mt-1 text-sm text-stone-500">
-                            {isRoot
-                                ? 'Create the first folder in a tracked document hierarchy.'
-                                : 'Create a folder in ' +
-                                  currentFolder?.name +
-                                  '.'}
-                        </p>
-                        {isRoot && (
-                            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                                <label className="block text-sm font-medium text-stone-700">
-                                    Subsidiary
-                                    <select
-                                        value={form.data.subsidiary_id}
-                                        onChange={(event) => {
-                                            form.setData(
-                                                'subsidiary_id',
-                                                event.target.value,
-                                            );
-                                            form.setData('department_id', '');
-                                        }}
-                                        className="mt-2 w-full rounded-xl border-stone-300"
-                                    >
-                                        <option value="">
-                                            Select subsidiary
-                                        </option>
-                                        {organizations.map((item) => (
-                                            <option
-                                                key={item.id}
-                                                value={item.id}
-                                            >
-                                                {item.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {form.errors.subsidiary_id && (
-                                        <span className="mt-1 block text-xs text-red-700">
-                                            {form.errors.subsidiary_id}
-                                        </span>
-                                    )}
-                                </label>
-                                <label className="block text-sm font-medium text-stone-700">
-                                    Department
-                                    <select
-                                        value={form.data.department_id}
-                                        onChange={(event) =>
-                                            form.setData(
-                                                'department_id',
-                                                event.target.value,
-                                            )
-                                        }
-                                        disabled={!form.data.subsidiary_id}
-                                        className="mt-2 w-full rounded-xl border-stone-300 disabled:bg-stone-100"
-                                    >
-                                        <option value="">
-                                            Select department
-                                        </option>
-                                        {departments.map((item) => (
-                                            <option
-                                                key={item.id}
-                                                value={item.id}
-                                            >
-                                                {item.name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    {form.errors.department_id && (
-                                        <span className="mt-1 block text-xs text-red-700">
-                                            {form.errors.department_id}
-                                        </span>
-                                    )}
-                                </label>
-                            </div>
-                        )}
-                        <label className="mt-5 block text-sm font-medium text-stone-700">
-                            {isRoot ? 'Filename' : 'Folder name'}
-                            <input
-                                value={form.data.name}
-                                onChange={(event) =>
-                                    form.setData('name', event.target.value)
-                                }
-                                placeholder={
-                                    isRoot ? 'Enter filename' : 'Folder name'
-                                }
-                                className="mt-2 w-full rounded-xl border-stone-300"
-                                autoFocus
-                            />
-                        </label>
-                        {form.errors.name && (
-                            <p className="mt-2 text-sm text-red-700">
-                                {form.errors.name}
+                        <div className="bg-gradient-to-r from-[#064b38] to-[#0b7654] px-6 py-5 text-white">
+                            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-emerald-100">
+                                Document Management
                             </p>
-                        )}
-                        <div className="mt-6 flex justify-end gap-3">
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h2 className="mt-1 text-xl font-bold">
+                                        {isRoot
+                                            ? 'Add New Filename'
+                                            : bulkFolderMode
+                                              ? 'Bulk Add Subfolders'
+                                              : 'Add New Subfolder'}
+                                    </h2>
+                                    <p className="mt-1 text-xs text-emerald-50">
+                                        {isRoot
+                                            ? 'Assign this filename to the corporate organization structure.'
+                                            : bulkFolderMode
+                                              ? 'Add multiple subfolders to ' +
+                                                currentFolder?.name +
+                                                ' at once.'
+                                              : 'Create a subfolder inside the selected destination.'}
+                                    </p>
+                                </div>
+                                {!isRoot && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            form.clearErrors();
+                                            setBulkFolderMode((mode) => !mode);
+                                            setBulkFolderNames('');
+                                        }}
+                                        className="shrink-0 rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/20"
+                                    >
+                                        {bulkFolderMode
+                                            ? 'Single Add'
+                                            : 'Bulk Add'}
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="max-h-[65vh] overflow-y-auto px-6 py-5">
+                            {isRoot && (
+                                <div className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4">
+                                    <div className="mb-4">
+                                        <p className="text-sm font-bold text-[#073d2f]">
+                                            Corporate Location
+                                        </p>
+                                        <p className="mt-1 text-xs text-stone-500">
+                                            Select: Subsidiary → Division →
+                                            Sub-Division → Department → Location
+                                        </p>
+                                    </div>
+                                    <div className="grid gap-3 md:grid-cols-2">
+                                        <label className="block text-sm font-semibold text-stone-700">
+                                            Subsidiary
+                                            <select
+                                                value={form.data.subsidiary_id}
+                                                onChange={(event) => {
+                                                    form.setData(
+                                                        'subsidiary_id',
+                                                        event.target.value,
+                                                    );
+                                                    form.setData(
+                                                        'division_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'subdivision_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'department_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'location_id',
+                                                        '',
+                                                    );
+                                                }}
+                                                className="mt-1.5 w-full rounded-lg border-stone-300 bg-white text-sm"
+                                            >
+                                                <option value="">
+                                                    Select subsidiary
+                                                </option>
+                                                {organizations.map((item) => (
+                                                    <option
+                                                        key={item.id}
+                                                        value={item.id}
+                                                    >
+                                                        {item.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.errors.subsidiary_id && (
+                                                <span className="mt-1 block text-xs text-red-700">
+                                                    {form.errors.subsidiary_id}
+                                                </span>
+                                            )}
+                                        </label>
+
+                                        <label className="block text-sm font-semibold text-stone-700">
+                                            Division
+                                            <select
+                                                value={form.data.division_id}
+                                                onChange={(event) => {
+                                                    form.setData(
+                                                        'division_id',
+                                                        event.target.value,
+                                                    );
+                                                    form.setData(
+                                                        'subdivision_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'department_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'location_id',
+                                                        '',
+                                                    );
+                                                }}
+                                                disabled={
+                                                    !form.data.subsidiary_id
+                                                }
+                                                className="mt-2 w-full rounded-xl border-stone-300 bg-white disabled:bg-stone-100"
+                                            >
+                                                <option value="">
+                                                    Select division
+                                                </option>
+                                                {divisions.map((item) => (
+                                                    <option
+                                                        key={item.id}
+                                                        value={item.id}
+                                                    >
+                                                        {item.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.errors.division_id && (
+                                                <span className="mt-1 block text-xs text-red-700">
+                                                    {form.errors.division_id}
+                                                </span>
+                                            )}
+                                        </label>
+
+                                        <label className="block text-sm font-semibold text-stone-700">
+                                            Sub-Division
+                                            <select
+                                                value={form.data.subdivision_id}
+                                                onChange={(event) => {
+                                                    form.setData(
+                                                        'subdivision_id',
+                                                        event.target.value,
+                                                    );
+                                                    form.setData(
+                                                        'department_id',
+                                                        '',
+                                                    );
+                                                    form.setData(
+                                                        'location_id',
+                                                        '',
+                                                    );
+                                                }}
+                                                disabled={
+                                                    !form.data.division_id
+                                                }
+                                                className="mt-2 w-full rounded-xl border-stone-300 bg-white disabled:bg-stone-100"
+                                            >
+                                                <option value="">
+                                                    Select sub-division
+                                                </option>
+                                                {subdivisions.map((item) => (
+                                                    <option
+                                                        key={item.id}
+                                                        value={item.id}
+                                                    >
+                                                        {item.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.errors.subdivision_id && (
+                                                <span className="mt-1 block text-xs text-red-700">
+                                                    {form.errors.subdivision_id}
+                                                </span>
+                                            )}
+                                        </label>
+
+                                        <label className="block text-sm font-semibold text-stone-700">
+                                            Department
+                                            <select
+                                                value={form.data.department_id}
+                                                onChange={(event) => {
+                                                    form.setData(
+                                                        'department_id',
+                                                        event.target.value,
+                                                    );
+                                                    form.setData(
+                                                        'location_id',
+                                                        '',
+                                                    );
+                                                }}
+                                                disabled={
+                                                    !form.data.subdivision_id
+                                                }
+                                                className="mt-2 w-full rounded-xl border-stone-300 bg-white disabled:bg-stone-100"
+                                            >
+                                                <option value="">
+                                                    Select department
+                                                </option>
+                                                {departments.map((item) => (
+                                                    <option
+                                                        key={item.id}
+                                                        value={item.id}
+                                                    >
+                                                        {item.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.errors.department_id && (
+                                                <span className="mt-1 block text-xs text-red-700">
+                                                    {form.errors.department_id}
+                                                </span>
+                                            )}
+                                        </label>
+
+                                        <label className="block text-sm font-semibold text-stone-700 md:col-span-2">
+                                            Location
+                                            <select
+                                                value={form.data.location_id}
+                                                onChange={(event) =>
+                                                    form.setData(
+                                                        'location_id',
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                disabled={
+                                                    !form.data.department_id
+                                                }
+                                                className="mt-2 w-full rounded-xl border-stone-300 bg-white disabled:bg-stone-100"
+                                            >
+                                                <option value="">
+                                                    Select location
+                                                </option>
+                                                {locations.map((item) => (
+                                                    <option
+                                                        key={item.id}
+                                                        value={item.id}
+                                                    >
+                                                        {item.name}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {form.errors.location_id && (
+                                                <span className="mt-1 block text-xs text-red-700">
+                                                    {form.errors.location_id}
+                                                </span>
+                                            )}
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+
+                            {!isRoot && (
+                                <div className="mb-4 flex items-center gap-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                                    <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-[#0b7654] shadow-sm">
+                                        <ArmsIcon name="folder" className="h-6 w-6" />
+                                    </span>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">Parent folder</p>
+                                        <p className="mt-0.5 truncate text-sm font-semibold text-[#073d2f]">{currentFolder?.name}</p>
+                                        <p className="mt-0.5 text-xs text-stone-500">Your new subfolder will be created here.</p>
+                                    </div>
+                                </div>
+                            )}
+                            <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+                                {bulkFolderMode ? (
+                                    <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-stone-800">
+                                                Subfolder names
+                                            </p>
+                                            <p className="mt-1 text-xs text-stone-500">
+                                                Enter one folder name per line. Maximum 100 subfolders per bulk add.
+                                            </p>
+                                            <textarea
+                                                value={bulkFolderNames}
+                                                onChange={(event) =>
+                                                    setBulkFolderNames(
+                                                        event.target.value,
+                                                    )
+                                                }
+                                                placeholder={
+                                                    'Finance\nHuman Resources\nOperations'
+                                                }
+                                                rows={9}
+                                                className="mt-2 w-full rounded-lg border-stone-300 bg-white px-3 py-2 text-sm"
+                                                autoFocus
+                                            />
+                                            {bulkFolderPreview.length > 100 && (
+                                                <p className="mt-2 text-xs font-semibold text-red-700">The limit is 100 folders per batch. Remove {bulkFolderPreview.length - 100} name(s) before creating.</p>
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3">
+                                            <div className="mb-3 flex items-center justify-between gap-3">
+                                                <div>
+                                                    <p className="text-xs font-bold uppercase tracking-wider text-emerald-900">Folder preview</p>
+                                                    <p className="mt-0.5 text-xs text-stone-500">These folders will be created inside {currentFolder?.name}.</p>
+                                                </div>
+                                                <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${bulkFolderPreview.length > 100 ? 'bg-red-100 text-red-700' : 'bg-white text-emerald-800'}`}>
+                                                    {bulkFolderPreview.length} / 100
+                                                </span>
+                                            </div>
+                                            {bulkFolderPreview.length > 0 ? (
+                                                <div className="grid max-h-48 grid-cols-1 gap-2 overflow-y-auto sm:grid-cols-2">
+                                                    {bulkFolderPreview.slice(0, 100).map((name, index) => (
+                                                        <div key={`${index}-${name}`} className="flex min-w-0 items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2">
+                                                            <ArmsIcon name="folder" className="h-4 w-4 shrink-0 text-emerald-700" />
+                                                            <span className="min-w-0 flex-1 truncate text-xs font-medium text-stone-700" title={name}>{name}</span>
+                                                            <span className="text-[10px] tabular-nums text-stone-400">{index + 1}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="rounded-lg border border-dashed border-emerald-200 bg-white/70 px-3 py-6 text-center">
+                                                    <ArmsIcon name="folder" className="mx-auto h-6 w-6 text-emerald-700/60" />
+                                                    <p className="mt-2 text-xs text-stone-500">Type folder names above to preview them here.</p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-sm font-bold text-stone-800">
+                                            {isRoot
+                                                ? 'Filename'
+                                                : 'Folder name'}
+                                        </p>
+                                        <input
+                                            value={form.data.name}
+                                            onChange={(event) =>
+                                                form.setData(
+                                                    'name',
+                                                    event.target.value,
+                                                )
+                                            }
+                                            placeholder={
+                                                isRoot
+                                                    ? 'Enter filename'
+                                                    : 'Folder name'
+                                            }
+                                            className="mt-2 w-full rounded-lg border-stone-300 bg-white px-3 py-2 text-sm"
+                                            autoFocus
+                                        />
+                                    </>
+                                )}
+                                {form.errors.name && (
+                                    <p className="mt-2 text-sm text-red-700">
+                                        {form.errors.name}
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-3 border-t border-stone-100 bg-stone-50/80 px-6 py-4">
                             <button
                                 type="button"
                                 onClick={() => setCreating(false)}
-                                className="rounded-xl border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+                                className="rounded-lg border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
                             >
                                 Cancel
                             </button>
                             <button
                                 disabled={form.processing}
-                                className="rounded-xl bg-arms-green px-5 py-2 text-sm font-semibold text-white hover:bg-[#033b2d] disabled:opacity-50"
+                                className="rounded-lg bg-arms-green px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#033b2d] disabled:opacity-50"
                             >
-                                {isRoot ? 'Create filename' : 'Create folder'}
+                                {form.processing
+                                    ? 'Creating…'
+                                    : isRoot
+                                      ? 'Create Filename'
+                                      : bulkFolderMode
+                                        ? 'Create Subfolders'
+                                        : 'Create Folder'}
                             </button>
                         </div>
                     </form>
@@ -1734,6 +2279,18 @@ function FolderUploadModal({
         event.preventDefault();
         if (uploading || !form.data.folder_files.length) return;
 
+        const extensionMismatch = form.data.relative_paths.findIndex((path, index) => {
+            const requestedName = path.split('/').pop() ?? '';
+            const originalName = form.data.folder_files[index]?.name ?? '';
+            const originalExtension = originalName.split('.').pop()?.toLowerCase() ?? '';
+            const requestedExtension = requestedName.split('.').pop()?.toLowerCase() ?? '';
+            return !originalExtension || !requestedExtension || originalExtension !== requestedExtension;
+        });
+        if (extensionMismatch !== -1) {
+            form.setError('folder_files', 'File extensions cannot be changed. Restore the original extension before uploading.');
+            return;
+        }
+
         const url = currentFolder
             ? route('documents.upload-folder', lockedDestination)
             : route('documents.upload-folder-root');
@@ -1785,7 +2342,7 @@ function FolderUploadModal({
 
     return (
         <div
-            className="fixed inset-0 z-[60] grid place-items-center bg-[#012a21]/55 p-4"
+            className="fixed inset-0 z-[60] grid place-items-center bg-[#012a21]/55 p-4 backdrop-blur-sm"
             onMouseDown={(event) =>
                 event.target === event.currentTarget && !uploading && onClose()
             }
@@ -1898,21 +2455,50 @@ function FolderUploadModal({
                                             ▾ 📁 {directory.split('/').at(-1)}
                                         </div>
                                     ))}
-                                    {form.data.relative_paths.map((path) => (
-                                        <div
-                                            key={path}
-                                            className="py-0.5"
-                                            style={{
-                                                paddingLeft: `${Math.max(0, path.split('/').length - 1) * 18}px`,
-                                            }}
-                                        >
-                                            📄 {path.split('/').at(-1)}
-                                        </div>
-                                    ))}
+                                    {form.data.relative_paths.map((path, index) => {
+                                        const parts = path.split('/');
+                                        const fileName = parts.pop() ?? path;
+                                        const originalName = form.data.folder_files[index]?.name ?? fileName;
+                                        const originalExtension = originalName.includes('.') && !originalName.startsWith('.')
+                                            ? originalName.split('.').pop()?.toLowerCase()
+                                            : '';
+                                        const extension = fileName.includes('.') && !fileName.startsWith('.')
+                                            ? `.${fileName.split('.').pop()}`
+                                            : 'No extension';
+                                        const extensionChanged = !originalExtension || (fileName.split('.').pop()?.toLowerCase() ?? '') !== originalExtension;
+                                        return (
+                                            <div
+                                                key={`${index}-${path}`}
+                                                className="flex items-center gap-2 py-1"
+                                                style={{
+                                                    paddingLeft: `${Math.max(0, path.split('/').length - 1) * 18}px`,
+                                                }}
+                                            >
+                                                <span className="shrink-0">📄</span>
+                                                <input
+                                                    aria-label={`Rename uploaded file ${fileName}`}
+                                                    value={fileName}
+                                                    disabled={uploading}
+                                                    onChange={(event) => {
+                                                        const nextName = event.target.value;
+                                                        const nextPaths = [...form.data.relative_paths];
+                                                        nextPaths[index] = [...parts, nextName].join('/');
+                                                        form.setData('relative_paths', nextPaths);
+                                                    }}
+                                                    className={`min-w-0 flex-1 rounded-md border ${extensionChanged ? 'border-red-400 bg-red-50' : 'border-stone-200 bg-white'} px-2 py-1 font-sans text-xs text-stone-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 disabled:bg-stone-100`}
+                                                />
+                                                <span className={`shrink-0 rounded px-1.5 py-1 font-sans text-[10px] font-semibold ${extensionChanged ? 'bg-red-100 text-red-700' : 'bg-stone-100 text-stone-500'}`}>
+                                                    {extension}
+                                                </span>
+                                                {extensionChanged && (
+                                                    <span className="shrink-0 text-[10px] font-semibold text-red-600">Extension cannot change</span>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                                 <p className="mt-3 text-xs text-stone-500">
-                                    Detected paths are read-only and will be
-                                    validated again on upload.
+                                    File names and extensions are shown above. Edit a name before uploading; the folder structure is preserved.
                                 </p>
                             </section>
                             <aside className="rounded-xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700">
@@ -2003,6 +2589,7 @@ function FolderRow({
     }) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    useExclusiveDropdown('folder-' + folder.id, setMenuOpen);
     return (
         <tr
             className={
@@ -2045,7 +2632,10 @@ function FolderRow({
                     folder={folder}
                     onInformation={onInformation}
                     open={menuOpen}
-                    onOpenChange={setMenuOpen}
+                    onOpenChange={(open) => {
+                        if (open) notifyDropdownOpen('folder-' + folder.id);
+                        setMenuOpen(open);
+                    }}
                 />
             </td>
         </tr>
@@ -2067,6 +2657,7 @@ function FolderCard({
     }) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    useExclusiveDropdown('folder-' + folder.id, setMenuOpen);
 
     return (
         <article
@@ -2098,7 +2689,10 @@ function FolderCard({
                         folder={folder}
                         onInformation={onInformation}
                         open={menuOpen}
-                        onOpenChange={setMenuOpen}
+                        onOpenChange={(open) => {
+                            if (open) notifyDropdownOpen('folder-' + folder.id);
+                            setMenuOpen(open);
+                        }}
                     />
                 </div>
             </div>
@@ -2204,6 +2798,7 @@ function DocumentRow({
     onSelected: (checked: boolean) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    useExclusiveDropdown('document-' + document.id, setMenuOpen);
     return (
         <tr
             className={
@@ -2231,7 +2826,7 @@ function DocumentRow({
                         <ArmsIcon name="document" className="h-5 w-5" />
                         <PinMarker pinned={document.is_pinned} />
                     </span>
-                    <span>{document.name}</span>
+                    <span>{document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}</span>
                 </button>
             </td>
             <td className="px-5 py-4 text-sm">{document.type}</td>
@@ -2248,7 +2843,10 @@ function DocumentRow({
                     onOpen={onOpen}
                     onInformation={onInformation}
                     open={menuOpen}
-                    onOpenChange={setMenuOpen}
+                    onOpenChange={(open) => {
+                        if (open) notifyDropdownOpen('document-' + document.id);
+                        setMenuOpen(open);
+                    }}
                 />
             </td>
         </tr>
@@ -2274,6 +2872,7 @@ function DocumentCard({
     onSelected: (checked: boolean) => void;
 }) {
     const [menuOpen, setMenuOpen] = useState(false);
+    useExclusiveDropdown('document-' + document.id, setMenuOpen);
     return (
         <article
             className={
@@ -2297,7 +2896,10 @@ function DocumentCard({
                     onOpen={onOpen}
                     onInformation={onInformation}
                     open={menuOpen}
-                    onOpenChange={setMenuOpen}
+                    onOpenChange={(open) => {
+                        if (open) notifyDropdownOpen('document-' + document.id);
+                        setMenuOpen(open);
+                    }}
                 />
             </div>
             <button
@@ -2314,9 +2916,9 @@ function DocumentCard({
                 <div className="px-3 pb-3 pt-2.5">
                     <p
                         className="truncate text-sm font-semibold text-[#073d2f]"
-                        title={document.name}
+                        title={document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
                     >
-                        {document.name}
+                        {document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
                     </p>
                     <p className="mt-1 truncate text-[11px] text-stone-500">
                         {document.type} · {formatDate(document.modified_at)}
@@ -2340,7 +2942,10 @@ function LegacyDocumentViewer({
     close: () => void;
 }) {
     const [current, setCurrent] = useState(document);
+    const [showDocumentSidebar, setShowDocumentSidebar] = useState(true);
+    const [showFileDetails, setShowFileDetails] = useState(true);
     const [actionsOpen, setActionsOpen] = useState(false);
+    useExclusiveDropdown('viewer-actions', setActionsOpen);
     const [renameOpen, setRenameOpen] = useState(false);
     const [transferOpen, setTransferOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
@@ -2348,19 +2953,32 @@ function LegacyDocumentViewer({
     const [destinationId, setDestinationId] = useState('');
     const [zoom, setZoom] = useState(1);
     const [fit, setFit] = useState(true);
+    const [zoomOpen, setZoomOpen] = useState(false);
+    useExclusiveDropdown('viewer-zoom', setZoomOpen);
     const [page, setPage] = useState(1);
+    const [pdfViewMode, setPdfViewMode] = useState<'single' | 'vertical'>(
+        'vertical',
+    );
+    const [verticalPage, setVerticalPage] = useState(1);
+    const verticalViewerRef = useRef<HTMLDivElement | null>(null);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const dragging = useRef(false);
     const dragOrigin = useRef({ x: 0, y: 0 });
     const positionOrigin = useRef({ x: 0, y: 0 });
     const index = documents.findIndex((item) => item.id === current.id);
+    // In Vertical View, show details for the document section currently in view.
+    // Single View continues to show details for the selected document.
+    const detailsDocument =
+        pdfViewMode === 'vertical'
+            ? documents[verticalPage - 1] ?? current
+            : current;
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(
         current.type.toUpperCase(),
     );
     const isPdf = current.type.toUpperCase() === 'PDF';
     const viewerSource =
         current.viewer_url && isPdf
-            ? `${current.viewer_url}#page=${page}&zoom=${fit ? 'page-fit' : Math.round(zoom * 100)}`
+            ? `${current.viewer_url}#page=${pdfViewMode === 'vertical' ? 1 : page}&zoom=${pdfViewMode === 'vertical' ? 'page-width' : fit ? 'page-fit' : Math.round(zoom * 100)}`
             : current.viewer_url;
 
     useEffect(() => {
@@ -2386,6 +3004,62 @@ function LegacyDocumentViewer({
             window.removeEventListener('wheel', stopBrowserZoom, true);
         };
     }, [isImage, isPdf]);
+
+    useEffect(() => {
+        if (pdfViewMode !== 'vertical') {
+            setVerticalPage(1);
+            return;
+        }
+
+        const viewer = verticalViewerRef.current;
+        if (!viewer) return;
+
+        // When Vertical View opens, position the scroll container at the
+        // document that is currently selected in Single View, not at the top.
+        const selectedSection = viewer.querySelector<HTMLElement>(
+            `[data-vertical-page="${index + 1}"]`,
+        );
+        if (selectedSection) {
+            const viewerTop = viewer.getBoundingClientRect().top;
+            const sectionTop = selectedSection.getBoundingClientRect().top;
+            viewer.scrollTop += sectionTop - viewerTop - 20;
+        }
+
+        const updateVerticalPage = () => {
+            const sections = Array.from(
+                viewer.querySelectorAll<HTMLElement>('[data-vertical-page]'),
+            );
+
+            if (!sections.length) {
+                setVerticalPage(1);
+                return;
+            }
+
+            const viewerTop = viewer.getBoundingClientRect().top;
+            let activePage = 1;
+            let closestDistance = Number.POSITIVE_INFINITY;
+
+            sections.forEach((section, sectionIndex) => {
+                const distance = Math.abs(
+                    section.getBoundingClientRect().top - viewerTop - 24,
+                );
+
+                if (distance < closestDistance) {
+                    closestDistance = distance;
+                    activePage = sectionIndex + 1;
+                }
+            });
+
+            setVerticalPage(activePage);
+        };
+
+        updateVerticalPage();
+        viewer.addEventListener('scroll', updateVerticalPage, { passive: true });
+
+        return () => {
+            viewer.removeEventListener('scroll', updateVerticalPage);
+        };
+    }, [pdfViewMode, documents.length, index]);
 
     useEffect(() => {
         const navigateWithKeyboard = (event: KeyboardEvent) => {
@@ -2476,192 +3150,401 @@ function LegacyDocumentViewer({
     };
 
     return (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-[#012a21]/65 p-4">
+        <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-[#012a21]/65 p-2 backdrop-blur-sm">
             <div
                 role="dialog"
                 aria-modal="true"
-                className="flex h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+                className="flex h-[96vh] w-full max-w-[98vw] flex-col overflow-hidden rounded-2xl border border-emerald-900/20 bg-white shadow-2xl"
             >
-                <header className="relative flex items-start justify-between gap-5 bg-[#087d5a] px-7 py-5 text-white">
-                    <div className="min-w-0">
-                        <span className="text-xs font-bold tracking-wide">
-                            DOCUMENT VIEWER
-                        </span>
-                        <h2 className="mt-1 truncate text-xl font-semibold">
+                <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/20 bg-[#075b43] px-5 py-3 text-white">
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-100">
+                            <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/10 text-sm">A</span>
+                            ARMS <span className="text-white/50">/</span> Document viewer
+                        </div>
+
+                        <h2 className="mt-1 truncate text-base font-semibold">
                             {current.name}
                         </h2>
-                        <p className="truncate text-sm">
-                            {folderPath} · File {index + 1} of{' '}
-                            {documents.length}
-                        </p>
+
+                        <div className="mt-1 flex min-w-0 items-center gap-3">
+                            <p className="min-w-0 flex-1 truncate text-sm">
+                                {folderPath}
+                            </p>
+
+                            <span className="shrink-0 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-bold whitespace-nowrap">
+                                Page {pdfViewMode === 'single' ? index + 1 : verticalPage} of {documents.length}
+                            </span>
+
+                            <div className="flex shrink-0 items-center gap-2">
+                                <span className="text-[11px] font-bold uppercase tracking-wide text-white/75">
+                                    View:
+                                </span>
+                                <button
+                                    type="button"
+                                    role="switch"
+                                    aria-checked={pdfViewMode === 'vertical'}
+                                    aria-label={`Document view: ${pdfViewMode === 'single' ? 'Single' : 'Vertical'}. Switch to ${pdfViewMode === 'single' ? 'Vertical' : 'Single'} view`}
+                                    onClick={() => {
+                                        if (pdfViewMode === 'single') {
+                                            setPdfViewMode('vertical');
+                                            setPage(1);
+                                        } else {
+                                            // Reset zoom and position when returning to Single View.
+                                            setPdfViewMode('single');
+                                            setPage(1);
+                                            setZoom(1);
+                                            setFit(true);
+                                            setPosition({ x: 0, y: 0 });
+                                            if (verticalViewerRef.current) {
+                                                verticalViewerRef.current.scrollTop = 0;
+                                                verticalViewerRef.current.scrollLeft = 0;
+                                            }
+                                        }
+                                    }}
+                                    className={`relative flex h-9 w-[156px] items-center rounded-full border p-1 transition-colors focus:outline-none focus:ring-2 focus:ring-white/80 focus:ring-offset-2 focus:ring-offset-[#075b43] ${
+                                        pdfViewMode === 'vertical'
+                                            ? 'border-white/70 bg-white/20'
+                                            : 'border-white/70 bg-white/20'
+                                    }`}
+                                >
+                                    <span className={`absolute left-1 top-1 h-[27px] w-[75px] rounded-full bg-white shadow-sm transition-transform duration-200 ${pdfViewMode === 'vertical' ? 'translate-x-[75px]' : 'translate-x-0'}`} />
+                                    <span className={`relative z-10 flex-1 text-center text-xs font-bold transition-colors ${pdfViewMode === 'single' ? 'text-arms-green' : 'text-white/90'}`}>
+                                        Single
+                                    </span>
+                                    <span className={`relative z-10 flex-1 text-center text-xs font-bold transition-colors ${pdfViewMode === 'vertical' ? 'text-arms-green' : 'text-white/90'}`}>
+                                        Vertical
+                                    </span>
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                        <div className="relative">
+
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                        {/* Actions + Zoom + Close */}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
                             <button
                                 type="button"
-                                onClick={() => setActionsOpen((open) => !open)}
-                                className="rounded-xl border border-white/40 px-4 py-2 text-sm font-semibold hover:bg-white/10"
+                                onClick={() => setShowDocumentSidebar((visible) => !visible)}
+                                aria-pressed={showDocumentSidebar}
+                                title={showDocumentSidebar ? 'Hide document thumbnails' : 'Show document thumbnails'}
+                                className="rounded-lg border border-white/40 px-3 py-1.5 text-xs font-semibold hover:bg-white/10"
                             >
-                                Actions⌄
+                                {showDocumentSidebar ? 'Hide files' : 'Show files'}⌄
                             </button>
-                            {actionsOpen && (
-                                <div className="absolute right-0 top-12 z-30 w-48 rounded-xl border border-stone-200 bg-white p-1.5 text-sm text-stone-700 shadow-2xl">
-                                    {current.move_url && (
+                            <button
+                                type="button"
+                                onClick={() => setShowFileDetails((visible) => !visible)}
+                                aria-pressed={showFileDetails}
+                                title={showFileDetails ? 'Hide file details' : 'Show file details'}
+                                className="rounded-lg border border-white/40 px-3 py-1.5 text-xs font-semibold hover:bg-white/10"
+                            >
+                                {showFileDetails ? 'Hide details' : 'Show details'}⌄
+                            </button>
+                            {/* Actions */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const nextOpen = !actionsOpen;
+
+                                        if (nextOpen) {
+                                            notifyDropdownOpen(
+                                                'viewer-actions',
+                                            );
+                                        }
+
+                                        setActionsOpen(nextOpen);
+                                    }}
+                                    className="rounded-lg border border-white/40 px-3 py-1.5 text-xs font-semibold hover:bg-white/10"
+                                >
+                                    Actions⌄
+                                </button>
+
+                                {actionsOpen && (
+                                    <div className="absolute right-0 top-9 z-30 w-48 rounded-xl border border-stone-200 bg-white p-1.5 text-sm text-stone-700 shadow-2xl">
+                                        {current.move_url && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setActionsOpen(false);
+                                                    setTransferOpen(true);
+                                                }}
+                                                className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50"
+                                            >
+                                                ⇄ Transfer
+                                            </button>
+                                        )}
+                                        {current.download_url && (
+                                            <a
+                                                href={current.download_url}
+                                                onClick={() => setActionsOpen(false)}
+                                                className="block rounded-lg px-3 py-2.5 hover:bg-stone-50"
+                                            >
+                                                ⇩ Download
+                                            </a>
+                                        )}
+                                        {current.update_url && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setRenameValue(current.name);
+                                                    setActionsOpen(false);
+                                                    setRenameOpen(true);
+                                                }}
+                                                className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50"
+                                            >
+                                                ✎ Rename
+                                            </button>
+                                        )}
+                                        {current.delete_url && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setActionsOpen(false);
+                                                    setDeleteOpen(true);
+                                                }}
+                                                className="block w-full rounded-lg px-3 py-2.5 text-left text-red-700 hover:bg-red-50"
+                                            >
+                                                ♜ Delete
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Zoom */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const nextOpen = !zoomOpen;
+
+                                        if (nextOpen) {
+                                            notifyDropdownOpen('viewer-zoom');
+                                        }
+
+                                        setZoomOpen(nextOpen);
+                                    }}
+                                    className="rounded-lg border border-white/40 px-3 py-1.5 text-xs font-semibold hover:bg-white/10"
+                                >
+                                    Zoom ▾
+                                </button>
+
+                                {zoomOpen && (
+                                    <div className="absolute right-0 top-9 z-30 w-56 rounded-xl border border-stone-200 bg-white p-2 text-sm text-stone-700 shadow-2xl">
+                                        <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                                            <span className="text-xs font-semibold text-stone-500">Zoom level</span>
+                                            <strong className="text-arms-green">{Math.round(zoom * 100)}%</strong>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-1">
+                                            <button
+                                                type="button"
+                                                disabled={!isImage && !isPdf}
+                                                onClick={() => {
+                                                    setFit(false);
+                                                    setZoom((value) => Math.max(0.25, value - 0.1));
+                                                }}
+                                                className="rounded-lg px-2 py-2 text-left hover:bg-stone-50 disabled:opacity-35"
+                                            >
+                                                − Zoom Out
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={!isImage && !isPdf}
+                                                onClick={() => {
+                                                    setFit(false);
+                                                    setZoom((value) => Math.min(4, value + 0.1));
+                                                }}
+                                                className="rounded-lg px-2 py-2 text-left hover:bg-stone-50 disabled:opacity-35"
+                                            >
+                                                + Zoom In
+                                            </button>
+                                        </div>
+                                        <div className="my-1 border-t border-stone-100" />
                                         <button
                                             type="button"
+                                            disabled={!isImage && !isPdf}
                                             onClick={() => {
-                                                setActionsOpen(false);
-                                                setTransferOpen(true);
+                                                resetView();
+                                                setZoomOpen(false);
                                             }}
-                                            className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50"
+                                            className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:opacity-35"
                                         >
-                                            ⇄ Transfer
+                                            Fit to Screen
                                         </button>
-                                    )}
-                                    {current.download_url && (
-                                        <a
-                                            href={current.download_url}
-                                            className="block rounded-lg px-3 py-2.5 hover:bg-stone-50"
-                                        >
-                                            ⇩ Download
-                                        </a>
-                                    )}
-                                    {current.update_url && (
                                         <button
                                             type="button"
+                                            disabled={!isImage && !isPdf}
                                             onClick={() => {
-                                                setRenameValue(current.name);
-                                                setActionsOpen(false);
-                                                setRenameOpen(true);
+                                                actualSize();
+                                                setZoomOpen(false);
                                             }}
-                                            className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50"
+                                            className="block w-full rounded-lg px-3 py-2.5 text-left hover:bg-stone-50 disabled:opacity-35"
                                         >
-                                            ✎ Rename
+                                            Actual Size (100%)
                                         </button>
-                                    )}
-                                    {current.delete_url && (
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setActionsOpen(false);
-                                                setDeleteOpen(true);
-                                            }}
-                                            className="block w-full rounded-lg px-3 py-2.5 text-left text-red-700 hover:bg-red-50"
-                                        >
-                                            ♜ Delete
-                                        </button>
-                                    )}
-                                </div>
-                            )}
+                                        {isPdf && pdfViewMode === 'single' && (
+                                            <>
+                                                <div className="my-1 border-t border-stone-100" />
+                                                <div className="flex items-center gap-2 px-2 py-1.5">
+                                                    <button
+                                                        type="button"
+                                                        disabled={page <= 1}
+                                                        onClick={() => setPage((value) => Math.max(1, value - 1))}
+                                                        className="rounded-lg border border-stone-200 px-2 py-1.5 hover:bg-stone-50 disabled:opacity-35"
+                                                    >
+                                                        Prev
+                                                    </button>
+                                                    <label className="flex min-w-0 flex-1 items-center gap-1 text-xs text-stone-600">
+                                                        Page
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            value={page}
+                                                            onChange={(event) => setPage(Math.max(1, Number(event.target.value) || 1))}
+                                                            className="w-14 rounded border-stone-300 py-1 text-center text-xs"
+                                                        />
+                                                    </label>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setPage((value) => value + 1)}
+                                                        className="rounded-lg border border-stone-200 px-2 py-1.5 hover:bg-stone-50"
+                                                    >
+                                                        Next
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Close */}
+                            <button
+                                onClick={close}
+                                aria-label="Close document viewer"
+                                className="grid h-8 w-8 place-items-center rounded-lg border border-white/40 text-xl hover:bg-white/10"
+                            >
+                                ×
+                            </button>
                         </div>
-                        <button
-                            onClick={close}
-                            aria-label="Close document viewer"
-                            className="grid h-10 w-10 place-items-center rounded-xl border border-white/40 text-2xl hover:bg-white/10"
-                        >
-                            ×
-                        </button>
                     </div>
                 </header>
-                <div className="flex flex-wrap items-center gap-2 border-b p-3 text-sm">
-                    <button
-                        type="button"
-                        disabled={!isImage && !isPdf}
-                        onClick={() => {
-                            setFit(false);
-                            setZoom((value) => Math.max(0.25, value - 0.1));
-                        }}
-                        className="rounded border px-3 py-2 disabled:opacity-35"
-                    >
-                        ⌕ Zoom Out
-                    </button>
-                    <strong className="min-w-12 text-center text-arms-green">
-                        {Math.round(zoom * 100)}%
-                    </strong>
-                    <button
-                        type="button"
-                        disabled={!isImage && !isPdf}
-                        onClick={() => {
-                            setFit(false);
-                            setZoom((value) => Math.min(4, value + 0.1));
-                        }}
-                        className="rounded border px-3 py-2 disabled:opacity-35"
-                    >
-                        ⌕ Zoom In
-                    </button>
-                    <button
-                        type="button"
-                        disabled={!isImage && !isPdf}
-                        onClick={resetView}
-                        className="rounded border px-3 py-2 disabled:opacity-35"
-                    >
-                        Fit to Screen
-                    </button>
-                    <button
-                        type="button"
-                        disabled={!isImage && !isPdf}
-                        onClick={actualSize}
-                        className="rounded border px-3 py-2 disabled:opacity-35"
-                    >
-                        Actual Size
-                    </button>
-                    {isPdf && (
-                        <>
-                            <button
-                                type="button"
-                                disabled={page <= 1}
-                                onClick={() =>
-                                    setPage((value) => Math.max(1, value - 1))
-                                }
-                                className="rounded border px-3 py-2 disabled:opacity-35"
-                            >
-                                Prev page
-                            </button>
-                            <label className="flex items-center gap-2 text-stone-600">
-                                Page{' '}
-                                <input
-                                    type="number"
-                                    min={1}
-                                    value={page}
-                                    onChange={(event) =>
-                                        setPage(
-                                            Math.max(
-                                                1,
-                                                Number(event.target.value) || 1,
-                                            ),
-                                        )
-                                    }
-                                    className="w-16 rounded border-stone-300 py-1.5 text-center text-sm"
-                                />
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => setPage((value) => value + 1)}
-                                className="rounded border px-3 py-2"
-                            >
-                                Next page
-                            </button>
-                        </>
+                
+                <div className="flex min-h-0 flex-1 overflow-hidden bg-[#eaf2ee]">
+                    {showDocumentSidebar && (
+                    <aside className="hidden w-40 shrink-0 flex-col border-r border-emerald-900/10 bg-white md:flex">
+                        <div className="flex items-start justify-between gap-2 border-b border-stone-100 px-3 py-3">
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Documents</p>
+                                <p className="mt-1 text-xs font-semibold text-[#075b43]">{documents.length} in this folder</p>
+                            </div>
+                            <button type="button" onClick={() => setShowDocumentSidebar(false)} aria-label="Collapse documents sidebar" title="Hide files" className="shrink-0 rounded-md px-2 py-1 text-sm text-stone-500 hover:bg-stone-100">‹</button>
+                        </div>
+                        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
+                            {documents.map((item, itemIndex) => (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => changeDocument(itemIndex)}
+                                    aria-current={item.id === current.id ? 'page' : undefined}
+                                    title={item.name}
+                                    className={`w-full rounded-xl border p-2 text-left transition ${
+                                        item.id === current.id
+                                            ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100'
+                                            : 'border-stone-200 bg-white hover:border-emerald-300 hover:bg-emerald-50/40'
+                                    }`}
+                                >
+                                    <div className="grid h-24 place-items-center overflow-hidden rounded-lg border border-stone-100 bg-white">
+                                        <DocumentThumbnail document={item} />
+                                    </div>
+                                    <p className="mt-2 truncate text-[11px] font-semibold text-stone-700">{item.name}</p>
+                                    <p className="mt-0.5 text-[10px] uppercase text-stone-400">{item.type}</p>
+                                </button>
+                            ))}
+                        </div>
+                    </aside>
                     )}
-                    <span className="ml-auto text-stone-500">
-                        {isImage
-                            ? 'Drag to pan · Ctrl + wheel to zoom'
-                            : isPdf
-                              ? 'PDF controls use the protected browser viewer.'
-                              : 'Protected viewer copy only.'}
-                    </span>
-                </div>
-                <div
+
+                    <div
                     onMouseDown={startDrag}
                     onMouseMove={moveDrag}
                     onMouseUp={stopDrag}
                     onMouseLeave={stopDrag}
+                    ref={verticalViewerRef}
                     className={
-                        'relative min-h-0 flex-1 overflow-auto scroll-smooth bg-[#24313a] p-5 ' +
-                        (isImage ? 'cursor-grab active:cursor-grabbing' : '')
+                        'relative min-h-0 min-w-0 flex-1 bg-[#24313a] p-5 ' +
+                        (pdfViewMode === 'vertical'
+                            ? 'overflow-y-auto'
+                            : isPdf
+                              ? 'overflow-y-auto'
+                              : 'overflow-hidden') +
+                        (isImage ? ' cursor-grab active:cursor-grabbing' : '')
                     }
                 >
-                    {viewerSource ? (
+                    {pdfViewMode === 'vertical' ? (
+                        <div className="flex min-h-full flex-col items-center gap-6">
+                            {documents.map((item, itemIndex) => {
+                                const itemIsImage = [
+                                    'PNG',
+                                    'JPG',
+                                    'JPEG',
+                                    'GIF',
+                                    'WEBP',
+                                    'BMP',
+                                ].includes(item.type.toUpperCase());
+                                const itemIsPdf =
+                                    item.type.toUpperCase() === 'PDF';
+                                const itemSource = item.viewer_url
+                                    ? itemIsPdf
+                                        ? `${item.viewer_url}#page=1&zoom=${fit ? 'page-width' : Math.round(zoom * 100)}`
+                                        : item.viewer_url
+                                    : null;
+
+                                return (
+                                    <section
+                                        key={item.id}
+                                        data-vertical-page={itemIndex + 1}
+                                        className="w-full max-w-[calc(100vw-80px)] shrink-0"
+                                    >
+                                        {itemSource ? (
+                                            itemIsImage ? (
+                                                <div className="flex min-h-[520px] w-full items-center justify-center overflow-hidden">
+                                                    <img
+                                                        draggable={false}
+                                                        src={itemSource}
+                                                        alt={item.name}
+                                                        className={
+                                                            fit
+                                                                ? 'max-h-[calc(96vh-190px)] max-w-full h-auto w-auto select-none object-contain'
+                                                                : 'max-h-none max-w-none select-none'
+                                                        }
+                                                        // CSS zoom participates in document layout, so each vertically
+                                                        // stacked page reserves its scaled height and the gap between
+                                                        // pages stays consistent when zooming in or out.
+                                                        style={{
+                                                            zoom: fit ? 1 : zoom,
+                                                        }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <iframe
+                                                    title={`Uploaded document viewer - ${item.name}`}
+                                                    src={itemSource}
+                                                    className="h-[80vh] min-h-[520px] w-full rounded bg-white"
+                                                />
+                                            )
+                                        ) : (
+                                            <div className="grid min-h-[520px] place-items-center text-stone-500">
+                                                The protected viewer is not ready.
+                                            </div>
+                                        )}
+                                    </section>
+                                );
+                            })}
+                        </div>
+                    ) : viewerSource ? (
                         isImage ? (
                             <div className="grid min-h-full min-w-full place-items-center overflow-visible">
                                 <img
@@ -2670,11 +3553,11 @@ function LegacyDocumentViewer({
                                     alt={current.name}
                                     className={
                                         fit
-                                            ? 'max-h-full max-w-full select-none object-contain'
+                                            ? 'max-h-[calc(96vh-190px)] max-w-[calc(100vw-80px)] h-auto w-auto select-none object-contain'
                                             : 'max-h-none max-w-none select-none'
                                     }
                                     style={{
-                                        transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
+                                        transform: `translate(${position.x}px, ${position.y}px) scale(${fit ? 1 : zoom})`,
                                         transformOrigin: 'center center',
                                     }}
                                 />
@@ -2691,7 +3574,7 @@ function LegacyDocumentViewer({
                             The protected viewer is not ready.
                         </div>
                     )}
-                    {documents.length > 1 && (
+                    {documents.length > 1 && pdfViewMode === 'single' && (
                         <>
                             <button
                                 type="button"
@@ -2711,8 +3594,48 @@ function LegacyDocumentViewer({
                             </button>
                         </>
                     )}
+                    </div>
+
+                    {showFileDetails && (
+                    <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-emerald-900/10 bg-white xl:block">
+                        <div className="flex items-start justify-between gap-2 border-b border-stone-100 px-4 py-4">
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">File details</p>
+                                <h3 className="mt-2 break-words text-sm font-semibold leading-5 text-[#073d2f]">{detailsDocument.name}</h3>
+                                <span className="mt-2 inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-emerald-800">{detailsDocument.type}</span>
+                            </div>
+                            <button type="button" onClick={() => setShowFileDetails(false)} aria-label="Collapse file details panel" title="Hide details" className="shrink-0 rounded-md px-2 py-1 text-sm text-stone-500 hover:bg-stone-100">›</button>
+                        </div>
+                        <div className="space-y-4 px-4 py-4 text-xs">
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Location</p>
+                                <p className="mt-1 break-words leading-5 text-stone-700">{folderPath || 'Current folder'}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Owner</p>
+                                <p className="mt-1 break-words text-stone-700">{detailsDocument.owner || 'Not available'}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Last modified</p>
+                                <p className="mt-1 text-stone-700">{formatDate(detailsDocument.modified_at)}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Document ID</p>
+                                <p className="mt-1 break-all font-mono text-stone-700">{detailsDocument.id}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Pinned</p>
+                                <p className="mt-1 text-stone-700">{detailsDocument.is_pinned ? 'Yes' : 'No'}</p>
+                            </div>
+                            <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3 leading-5 text-emerald-900">
+                                <p className="font-semibold">Secure document preview</p>
+                                <p className="mt-1 text-emerald-800/80">Use Actions to manage this file. Use Zoom to adjust the preview.</p>
+                            </div>
+                        </div>
+                    </aside>
+                    )}
                 </div>
-                <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-6 py-3 text-sm">
+                <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-emerald-900/10 bg-white px-5 py-2.5 text-xs">
                     <span className="truncate font-semibold text-[#073d2f]">
                         {current.name}
                     </span>
@@ -2882,6 +3805,9 @@ function DocumentActions({
             Math.max(viewportPadding, rect.right - menuWidth),
         );
         setMenuPosition({ top, left });
+        if (!open) {
+            notifyDropdownOpen('document-' + document.id);
+        }
         onOpenChange(!open);
     };
     const submitRename = (event: FormEvent) => {
@@ -3067,7 +3993,7 @@ function DocumentActions({
                 </div>
             )}
             {transferOpen && (
-                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4">
+                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
                     <form
                         onSubmit={submitTransfer}
                         className="w-full max-w-lg rounded-2xl bg-white p-6 text-left shadow-2xl"
@@ -3116,7 +4042,7 @@ function DocumentActions({
                 </div>
             )}
             {deleteOpen && (
-                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4">
+                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">
                             !
@@ -3155,6 +4081,7 @@ function FolderActions({
     onInformation,
     open,
     onOpenChange,
+    variant = 'default',
 }: {
     folder: Folder;
     onInformation: (target: {
@@ -3164,6 +4091,7 @@ function FolderActions({
     }) => void;
     open: boolean;
     onOpenChange: (open: boolean) => void;
+    variant?: 'default' | 'header';
 }) {
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
     const [renameOpen, setRenameOpen] = useState(false);
@@ -3193,6 +4121,9 @@ function FolderActions({
                 Math.max(viewportPadding, rect.right - menuWidth),
             ),
         });
+        if (!open) {
+            notifyDropdownOpen('folder-' + folder.id);
+        }
         onOpenChange(!open);
     };
     const submitRename = (event: FormEvent) => {
@@ -3267,13 +4198,21 @@ function FolderActions({
                 onClick={toggle}
                 aria-label={'Actions for folder ' + folder.name}
                 className={
-                    'rounded-lg px-2 py-1 text-lg leading-none transition ' +
-                    (open
-                        ? 'bg-emerald-100 text-[#073d2f]'
-                        : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')
+                    variant === 'header'
+                        ? 'inline-flex h-9 items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 text-sm font-semibold text-stone-700 shadow-sm hover:bg-stone-50'
+                        : 'rounded-lg px-2 py-1 text-lg leading-none transition ' +
+                          (open
+                              ? 'bg-emerald-100 text-[#073d2f]'
+                              : 'text-stone-500 hover:bg-emerald-50 hover:text-[#073d2f]')
                 }
             >
-                ⋮
+                {variant === 'header' ? (
+                    <>
+                        Action <span className="text-xs">⌄</span>
+                    </>
+                ) : (
+                    '⋮'
+                )}
             </button>
             {open && (
                 <div
@@ -3405,7 +4344,7 @@ function FolderActions({
                 </div>
             )}
             {renameOpen && (
-                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4">
+                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
                     <form
                         onSubmit={submitRename}
                         className="w-full max-w-md rounded-2xl bg-white p-6 text-left shadow-2xl"
@@ -3444,7 +4383,7 @@ function FolderActions({
                 </div>
             )}
             {deleteOpen && (
-                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4">
+                <div className="fixed inset-0 z-[100] grid place-items-center bg-black/35 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl">
                         <div className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-red-50 text-2xl text-red-600">
                             !
@@ -3760,7 +4699,7 @@ function PinnedSearchResults({
                                         {item.name}
                                     </a>
                                 </td>
-                                <td className="max-w-xl px-5 py-4">
+                                <td className="max-w-lg px-5 py-4">
                                     <span className="block whitespace-normal break-words text-sm leading-5 text-stone-500 [overflow-wrap:anywhere]">
                                         {item.path}
                                     </span>
@@ -3810,7 +4749,11 @@ function PinnedResultActions({
         <div className="relative inline-block text-left">
             <button
                 type="button"
-                onClick={() => setOpen((value) => !value)}
+                onClick={() => {
+                    const nextOpen = !open;
+                    if (nextOpen) notifyDropdownOpen('pinned-search-' + item.pin_id);
+                    setOpen(nextOpen);
+                }}
                 className="rounded-lg px-2 py-1 text-lg text-stone-500 hover:bg-emerald-50"
             >
                 ⋮

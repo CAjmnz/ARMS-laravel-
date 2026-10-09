@@ -73,7 +73,7 @@ export default function Index({ records, filters, statuses, organizations }: {
                 </div>
             </div>
 
-            {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            {open && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
                 <form onSubmit={submit} className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
                     <div className="mb-5 flex items-center justify-between"><div><h2 className="text-xl font-semibold">New Receiving Record</h2><p className="text-sm text-stone-500">Capture the physical record before registration or scanning.</p></div><button type="button" onClick={() => setOpen(false)} className="text-xl text-stone-400">×</button></div>
                     <div className="grid gap-4 md:grid-cols-2">

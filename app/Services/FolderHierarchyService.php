@@ -64,7 +64,10 @@ class FolderHierarchyService
             $folder = Folder::query()->create([
                 'parent_id' => $parent->id,
                 'subsidiary_id' => $parent->subsidiary_id,
+                'division_id' => $parent->division_id,
+                'subdivision_id' => $parent->subdivision_id,
                 'department_id' => $parent->department_id,
+                'location_id' => $parent->location_id,
                 'name' => $name,
                 'slug' => $slug,
                 'depth' => $parent->depth + 1,
@@ -80,7 +83,7 @@ class FolderHierarchyService
         });
     }
 
-    public function createRoot(string $name, int $subsidiaryId, int $departmentId, User $actor, array $context): Folder
+    public function createRoot(string $name, int $subsidiaryId, int $divisionId, int $subdivisionId, int $departmentId, int $locationId, User $actor, array $context): Folder
     {
         if (! $actor->isSuperUser()) {
             abort(403);
@@ -93,7 +96,7 @@ class FolderHierarchyService
             throw ValidationException::withMessages(['name' => 'The filename contains invalid path characters.']);
         }
 
-        return DB::transaction(function () use ($name, $slug, $subsidiaryId, $departmentId, $actor, $context): Folder {
+        return DB::transaction(function () use ($name, $slug, $subsidiaryId, $divisionId, $subdivisionId, $departmentId, $locationId, $actor, $context): Folder {
             if (Folder::query()->whereNull('parent_id')->where('slug', $slug)->lockForUpdate()->exists()) {
                 throw ValidationException::withMessages(['name' => 'A filename with this name already exists.']);
             }
@@ -101,7 +104,10 @@ class FolderHierarchyService
             $folder = Folder::query()->create([
                 'parent_id' => null,
                 'subsidiary_id' => $subsidiaryId,
+                'division_id' => $divisionId,
+                'subdivision_id' => $subdivisionId,
                 'department_id' => $departmentId,
+                'location_id' => $locationId,
                 'name' => $name,
                 'slug' => $slug,
                 'depth' => 0,

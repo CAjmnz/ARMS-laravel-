@@ -2,7 +2,7 @@ import ArmsIcon from '@/Components/ArmsIcon';
 import UserPortalLayout from '@/Layouts/UserPortalLayout';
 import { Head, Link, router } from '@inertiajs/react';
 import axios from 'axios';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 type FolderItem = {
     id: number;
@@ -34,13 +34,24 @@ type DocumentItem = {
     information_url: string;
 };
 
+type Pagination = {
+    current_page: number;
+    last_page: number;
+    total: number;
+    from: number | null;
+    to: number | null;
+    links: { url: string | null; label: string; active: boolean }[];
+};
+
 type Props = {
     summary: { visible_documents: number; can_download: boolean };
     currentFolder: { id: number; route_key: string; name: string } | null;
     breadcrumbs: { id: number; route_key: string; name: string }[];
     folders: FolderItem[];
     documents: DocumentItem[];
-    filters: { search: string };
+    folderPagination: Pagination;
+    documentPagination: Pagination;
+    filters: { search: string; folder_per_page: number; document_per_page: number };
 };
 
 type InfoTarget =
@@ -57,7 +68,37 @@ const formatSize = (bytes?: number | null) => {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
-export default function Documents({ summary, currentFolder, breadcrumbs, folders, documents, filters }: Props) {
+function PortalDocumentThumbnail({ document }: { document: DocumentItem }) {
+    const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
+
+    if (!document.viewer_url) {
+        return <ArmsIcon name="document" className="h-10 w-10 text-arms-green" />;
+    }
+
+    if (isImage) {
+        return (
+            <img
+                src={document.viewer_url}
+                alt={document.name}
+                loading="lazy"
+                className="h-full w-full object-contain"
+            />
+        );
+    }
+
+    return (
+        <iframe
+            src={document.viewer_url}
+            title={`Preview of ${document.name}`}
+            tabIndex={-1}
+            className="pointer-events-none h-full w-full border-0 bg-white"
+        />
+    );
+}
+
+export default function Documents({ summary, currentFolder, breadcrumbs, folders, documents, folderPagination, documentPagination, filters }: Props) {
+    const folderItems = folders;
+    const documentItems = documents;
     const [view, setView] = useState<'grid' | 'list'>(() => (window.localStorage.getItem('portal-documents-view') === 'list' ? 'list' : 'grid'));
     const [search, setSearch] = useState(filters.search ?? '');
     const [viewingDocument, setViewingDocument] = useState<DocumentItem | null>(null);
@@ -67,8 +108,8 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
     const [batchDownloadError, setBatchDownloadError] = useState('');
 
     const downloadableDocumentIds = useMemo(
-        () => new Set(documents.filter((document) => Boolean(document.download_url)).map((document) => document.id)),
-        [documents],
+        () => new Set(documentItems.filter((document) => Boolean(document.download_url)).map((document) => document.id)),
+        [documentItems],
     );
 
     useEffect(() => {
@@ -172,7 +213,7 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
         }
     };
 
-    const itemCount = folders.length + documents.length;
+    const itemCount = folderPagination.total + documentPagination.total;
 
     return (
         <UserPortalLayout title="My Documents" description="Browse records that have been shared with your RMS account.">
@@ -231,26 +272,30 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                                     <p className="text-sm font-semibold text-[#073d2f]">{selectedDocumentIds.size} selected</p>
                                     <p className="text-xs text-stone-500">Select up to 100 downloadable documents at a time.</p>
                                 </div>
-                                <div className="flex flex-wrap items-center gap-2">
-                                    {selectedDocumentIds.size > 0 && (
+                                <details className="relative">
+                                    <summary className="flex cursor-pointer list-none items-center gap-2 rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-sm font-semibold text-stone-700 shadow-sm hover:bg-stone-50 [&::-webkit-details-marker]:hidden">
+                                        Bulk Actions
+                                        <ArmsIcon name="chevron" className="h-3.5 w-3.5 rotate-90" />
+                                    </summary>
+                                    <div className="absolute right-0 top-full z-30 mt-1 min-w-44 rounded-xl border border-stone-200 bg-white p-1 shadow-lg">
+                                        <button
+                                            type="button"
+                                            onClick={downloadSelected}
+                                            disabled={selectedDocumentIds.size === 0 || batchDownloadProcessing}
+                                            className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                            {batchDownloadProcessing ? 'Creating ZIP…' : 'Download Selected'}
+                                        </button>
                                         <button
                                             type="button"
                                             onClick={clearSelection}
-                                            disabled={batchDownloadProcessing}
-                                            className="rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
+                                            disabled={selectedDocumentIds.size === 0 || batchDownloadProcessing}
+                                            className="block w-full rounded-lg px-3 py-2 text-left text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:cursor-not-allowed disabled:opacity-50"
                                         >
-                                            Clear selection
+                                            Clear Selection
                                         </button>
-                                    )}
-                                    <button
-                                        type="button"
-                                        onClick={downloadSelected}
-                                        disabled={selectedDocumentIds.size === 0 || batchDownloadProcessing}
-                                        className="rounded-xl bg-arms-green px-4 py-2 text-sm font-semibold text-white hover:bg-[#076244] disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        {batchDownloadProcessing ? 'Creating ZIP…' : 'Download Selected'}
-                                    </button>
-                                </div>
+                                    </div>
+                                </details>
                             </div>
                         )}
 
@@ -272,9 +317,10 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                         </div>
                     ) : view === 'grid' ? (
                         <>
-                        {folders.length > 0 && (
+                        {folderItems.length > 0 && (
+                            <>
                             <div className="grid grid-cols-4 gap-4 p-5 sm:p-6">
-                                {folders.map((folder) => (
+                                {folderItems.map((folder) => (
                                 <div key={`folder-${folder.id}`} className="group rounded-2xl border border-stone-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
                                     <div className="flex items-start justify-between gap-3">
                                         <Link href={folder.open_url} className="grid h-12 w-12 place-items-center rounded-xl bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-6 w-6" /></Link>
@@ -289,28 +335,49 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                                 </div>
                             ))}
                             </div>
+                            {folderPagination.last_page > 1 && (
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4 text-sm text-stone-700 shadow-sm sm:px-6">
+                                    <span className="font-semibold text-stone-700">Folders {folderPagination.from ?? 0}–{folderPagination.to ?? 0} of {folderPagination.total}</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {folderPagination.links.map((link, i) => link.url ? (
+                                            <Link key={`grid-f-${i}`} href={link.url} preserveScroll preserveState className={`min-w-9 rounded-lg border px-3 py-2 text-center font-semibold shadow-sm transition ${link.active ? 'border-arms-green bg-arms-green text-white' : 'border-stone-300 bg-white text-stone-700 hover:border-arms-green hover:bg-emerald-50 hover:text-arms-green'}`} dangerouslySetInnerHTML={{ __html: link.label }} />
+                                        ) : null)}
+                                    </div>
+                                </div>
+                            )}
+                            </>
                         )}
-                        {documents.length > 0 && (
+                        {documentItems.length > 0 && (
+                            <>
                             <div className="grid w-full grid-cols-4 gap-4 p-5 sm:p-6">
-                                {documents.map((document) => (
+                                {documentItems.map((document) => (
                                 <div key={`document-${document.id}`} className={`group rounded-2xl border bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md ${selectedDocumentIds.has(document.id) ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-stone-200 hover:border-emerald-200'}`}>
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="flex items-start gap-2">
+                                    <div className="relative mb-4 h-40 overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
+                                        <button
+                                            type="button"
+                                            disabled={!document.viewer_url}
+                                            onClick={() => document.viewer_url && setViewingDocument(document)}
+                                            className="absolute inset-0 grid place-items-center disabled:cursor-default"
+                                            aria-label={`Preview ${document.name}`}
+                                        >
+                                            <PortalDocumentThumbnail document={document} />
+                                        </button>
+                                        <div className="absolute left-2 top-2 z-10 flex items-center gap-2">
                                             {summary.can_download && document.download_url && (
                                                 <input
                                                     type="checkbox"
                                                     aria-label={`Select ${document.name}`}
                                                     checked={selectedDocumentIds.has(document.id)}
                                                     onChange={() => toggleDocumentSelection(document.id)}
+                                                    onClick={(event) => event.stopPropagation()}
                                                     disabled={batchDownloadProcessing}
-                                                    className="mt-1 h-4 w-4 rounded border-stone-300 text-arms-green focus:ring-arms-green"
+                                                    className="h-4 w-4 rounded border-stone-300 bg-white text-arms-green shadow-sm focus:ring-arms-green"
                                                 />
                                             )}
-                                            <button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="grid h-12 w-12 place-items-center rounded-xl bg-stone-100 text-stone-700 disabled:opacity-40"><ArmsIcon name="document" className="h-6 w-6" /></button>
                                         </div>
-                                        <button type="button" onClick={() => togglePin(document.pin_url)} title={document.is_pinned ? 'Unpin' : 'Pin'} className={`rounded-lg p-2 ${document.is_pinned ? 'bg-amber-50 text-amber-600' : 'text-stone-400 hover:bg-stone-50'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
+                                        <button type="button" onClick={() => togglePin(document.pin_url)} title={document.is_pinned ? 'Unpin' : 'Pin'} className={`absolute right-2 top-2 z-10 rounded-lg bg-white/90 p-2 shadow-sm backdrop-blur ${document.is_pinned ? 'text-amber-600' : 'text-stone-400 hover:bg-white'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
                                     </div>
-                                    <button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="mt-4 block w-full truncate text-left font-semibold text-[#173d33] hover:text-arms-green disabled:cursor-default">{document.name}</button>
+                                    <button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="block w-full truncate text-left font-semibold text-[#173d33] hover:text-arms-green disabled:cursor-default">{document.name}</button>
                                     <p className="mt-1 text-xs text-stone-500">{document.type} · {formatSize(document.size)}</p>
                                     <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-3">
                                         <button type="button" onClick={() => setInfoTarget({ kind: 'document', item: document })} className="text-xs font-semibold text-arms-green hover:underline">Details</button>
@@ -319,6 +386,17 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                                 </div>
                             ))}
                             </div>
+                            {documentPagination.last_page > 1 && (
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-200 bg-stone-50 px-5 py-4 text-sm text-stone-700 shadow-sm sm:px-6">
+                                    <span className="font-semibold text-stone-700">Documents {documentPagination.from ?? 0}–{documentPagination.to ?? 0} of {documentPagination.total}</span>
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        {documentPagination.links.map((link, i) => link.url ? (
+                                            <Link key={`grid-d-${i}`} href={link.url} preserveScroll preserveState className={`min-w-9 rounded-lg border px-3 py-2 text-center font-semibold shadow-sm transition ${link.active ? 'border-arms-green bg-arms-green text-white' : 'border-stone-300 bg-white text-stone-700 hover:border-arms-green hover:bg-emerald-50 hover:text-arms-green'}`} dangerouslySetInnerHTML={{ __html: link.label }} />
+                                        ) : null)}
+                                    </div>
+                                </div>
+                            )}
+                            </>
                         )}
                         </>
                     ) : (
@@ -328,15 +406,15 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                                     <tr>{summary.can_download && <th className="w-12 px-4 py-4"><span className="sr-only">Select</span></th>}<th className="px-6 py-4">Name</th><th className="px-4 py-4">Type</th><th className="px-4 py-4">Modified</th><th className="hidden px-4 py-4 md:table-cell">Owner / Details</th><th className="px-4 py-4 text-right">Actions</th></tr>
                                 </thead>
                                 <tbody className="divide-y divide-stone-100">
-                                    {folders.map((folder) => (
+                                    {folderItems.map((folder) => (
                                         <tr key={`folder-${folder.id}`} className="hover:bg-stone-50">
                                             {summary.can_download && <td className="px-4 py-4" />}
                                             <td className="px-6 py-4"><Link href={folder.open_url} className="flex items-center gap-3 font-semibold text-[#173d33] hover:text-arms-green"><span className="grid h-9 w-9 place-items-center rounded-lg bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-5 w-5" /></span>{folder.name}</Link></td>
                                             <td className="px-4 py-4 text-stone-600">Folder</td><td className="px-4 py-4 text-stone-600">{formatDate(folder.modified_at)}</td><td className="hidden px-4 py-4 text-stone-500 md:table-cell">{folder.children_count} folders · {folder.documents_count} files</td>
-                                            <td className="px-4 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => togglePin(folder.pin_url)} className="rounded-lg border px-2.5 py-1.5 text-xs font-semibold">{folder.is_pinned ? 'Unpin' : 'Pin'}</button><button type="button" onClick={() => setInfoTarget({ kind: 'folder', item: folder })} className="rounded-lg border px-2.5 py-1.5 text-xs font-semibold">Details</button></div></td>
+                                            <td className="px-4 py-4"><ActionDropdown><Link href={folder.open_url} className="block rounded-lg px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Open</Link><button type="button" onClick={() => togglePin(folder.pin_url)} className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-stone-700 hover:bg-stone-50">{folder.is_pinned ? 'Unpin' : 'Pin'}</button><button type="button" onClick={() => setInfoTarget({ kind: 'folder', item: folder })} className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-stone-700 hover:bg-stone-50">Information</button></ActionDropdown></td>
                                         </tr>
                                     ))}
-                                    {documents.map((document) => (
+                                    {documentItems.map((document) => (
                                         <tr key={`document-${document.id}`} className={selectedDocumentIds.has(document.id) ? 'bg-emerald-50/50' : 'hover:bg-stone-50'}>
                                             {summary.can_download && (
                                                 <td className="px-4 py-4">
@@ -354,12 +432,24 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                                             )}
                                             <td className="px-6 py-4"><button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="flex items-center gap-3 font-semibold text-[#173d33] hover:text-arms-green disabled:cursor-default"><span className="grid h-9 w-9 place-items-center rounded-lg bg-stone-100 text-stone-700"><ArmsIcon name="document" className="h-5 w-5" /></span>{document.name}</button></td>
                                             <td className="px-4 py-4 text-stone-600">{document.type}</td><td className="px-4 py-4 text-stone-600">{formatDate(document.modified_at)}</td><td className="hidden px-4 py-4 text-stone-500 md:table-cell">{document.owner}</td>
-                                            <td className="px-4 py-4"><div className="flex justify-end gap-2"><button type="button" onClick={() => setInfoTarget({ kind: 'document', item: document })} className="rounded-lg border px-2.5 py-1.5 text-xs font-semibold">Details</button>{document.download_url && <a href={document.download_url} className="rounded-lg bg-arms-green px-2.5 py-1.5 text-xs font-semibold text-white">Download</a>}</div></td>
+                                            <td className="px-4 py-4"><ActionDropdown>{document.viewer_url && <button type="button" onClick={() => setViewingDocument(document)} className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-stone-700 hover:bg-stone-50">View</button>}{document.download_url && <a href={document.download_url} className="block rounded-lg px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-50">Download</a>}<button type="button" onClick={() => togglePin(document.pin_url)} className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-stone-700 hover:bg-stone-50">{document.is_pinned ? 'Unpin' : 'Pin'}</button><button type="button" onClick={() => setInfoTarget({ kind: 'document', item: document })} className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-stone-700 hover:bg-stone-50">Information</button></ActionDropdown></td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
                         </div>
+                    )}
+
+                    {view === 'list' && (folderPagination.total > 0 || documentPagination.total > 0) && (
+                        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4 text-sm text-stone-500 sm:px-6">
+                            <span>Folders {folderPagination.from ?? 0}–{folderPagination.to ?? 0} of {folderPagination.total} · Documents {documentPagination.from ?? 0}–{documentPagination.to ?? 0} of {documentPagination.total}</span>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <label className="flex items-center gap-2">Folders <select value={filters.folder_per_page} onChange={(e) => router.get(route('portal.documents', currentFolder?.route_key), { search: filters.search || undefined, folder_per_page: Number(e.target.value), document_per_page: filters.document_per_page, folder_page: 1, document_page: documentPagination.current_page }, { preserveState: true, preserveScroll: true, replace: true })} className="rounded-lg border-stone-300 py-1.5 text-sm">{[10,25,50,100].map(v => <option key={v}>{v}</option>)}</select></label>
+                                <label className="flex items-center gap-2">Documents <select value={filters.document_per_page} onChange={(e) => router.get(route('portal.documents', currentFolder?.route_key), { search: filters.search || undefined, folder_per_page: filters.folder_per_page, document_per_page: Number(e.target.value), folder_page: folderPagination.current_page, document_page: 1 }, { preserveState: true, preserveScroll: true, replace: true })} className="rounded-lg border-stone-300 py-1.5 text-sm">{[10,25,50,100].map(v => <option key={v}>{v}</option>)}</select></label>
+                                {folderPagination.last_page > 1 && <div className="flex gap-1">{folderPagination.links.map((link, i) => link.url ? <Link key={`f-${i}`} href={link.url} preserveScroll preserveState className={`rounded-lg px-2.5 py-1.5 ${link.active ? 'bg-arms-green text-white' : 'hover:bg-stone-100'}`} dangerouslySetInnerHTML={{ __html: link.label }} /> : null)}</div>}
+                                {documentPagination.last_page > 1 && <div className="flex gap-1">{documentPagination.links.map((link, i) => link.url ? <Link key={`d-${i}`} href={link.url} preserveScroll preserveState className={`rounded-lg px-2.5 py-1.5 ${link.active ? 'bg-arms-green text-white' : 'hover:bg-stone-100'}`} dangerouslySetInnerHTML={{ __html: link.label }} /> : null)}</div>}
+                            </div>
+                        </footer>
                     )}
                 </div>
             </section>
@@ -367,14 +457,14 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
             {viewingDocument && (
                 <PortalProtectedViewer
                     initialDocument={viewingDocument}
-                    documents={documents}
+                    documents={documentItems}
                     folderPath={['My Documents', ...breadcrumbs.map((item) => item.name)].join(' › ')}
                     onClose={() => setViewingDocument(null)}
                 />
             )}
 
             {infoTarget && (
-                <div className="fixed inset-0 z-[110] grid place-items-center bg-[#012a21]/55 p-4">
+                <div className="fixed inset-0 z-[110] grid place-items-center bg-[#012a21]/55 p-4 backdrop-blur-sm">
                     <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
                         <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-arms-green">Item details</p><h3 className="mt-1 text-xl font-semibold text-[#073d2f]">{infoTarget.item.name}</h3></div><button type="button" onClick={() => setInfoTarget(null)} className="text-2xl text-stone-400">×</button></div>
                         <dl className="mt-6 space-y-4 text-sm">
@@ -387,6 +477,19 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                 </div>
             )}
         </UserPortalLayout>
+    );
+}
+
+function ActionDropdown({ children }: { children: ReactNode }) {
+    return (
+        <details className="relative flex justify-end">
+            <summary className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-lg border border-stone-300 bg-white text-stone-600 shadow-sm hover:bg-stone-50 [&::-webkit-details-marker]:hidden" aria-label="Actions">
+                <span className="text-xl font-bold leading-none" aria-hidden="true">⋮</span>
+            </summary>
+            <div className="absolute bottom-full right-0 z-30 mb-1 flex min-w-28 flex-col items-stretch rounded-lg border border-stone-200 bg-white p-1 shadow-lg [&>a]:block [&>a]:w-full [&>a]:rounded-md [&>a]:px-2 [&>a]:py-1.5 [&>a]:text-xs [&>button]:block [&>button]:w-full [&>button]:rounded-md [&>button]:px-2 [&>button]:py-1.5 [&>button]:text-xs">
+                {children}
+            </div>
+        </details>
     );
 }
 
@@ -459,7 +562,7 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
         : current.viewer_url;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#012a21]/75 p-3 sm:p-4">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#012a21]/75 p-3 sm:p-4 backdrop-blur-sm">
             <div role="dialog" aria-modal="true" aria-label={`Protected viewer for ${current.name}`} className="flex h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
                 <header className="flex flex-wrap items-start justify-between gap-4 bg-[#073d2f] px-5 py-4 text-white sm:px-6">
                     <div className="min-w-0">

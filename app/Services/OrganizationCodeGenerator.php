@@ -18,7 +18,7 @@ class OrganizationCodeGenerator
         $code = $base;
         $suffix = 2;
 
-        while ((clone $query)->where('code', $code)->exists()) {
+        while ((clone $query)->withoutGlobalScopes()->where('code', $code)->exists()) {
             $code = $base.'-'.$suffix;
             $suffix++;
         }

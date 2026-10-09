@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\FolderManagementController;
 use App\Http\Controllers\SubsidiaryController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RoleReferenceController;
 use App\Http\Controllers\UserRoleController;
@@ -78,6 +79,8 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
         ->name('documents.filenames.store');
     Route::post('/documents/manage/{folder}/folders', [FolderManagementController::class, 'store'])
         ->name('documents.folders.store');
+    Route::post('/documents/manage/{folder}/folders/bulk', [FolderManagementController::class, 'bulkStore'])
+        ->name('documents.folders.bulk-store');
     Route::patch('/documents/manage/{folder}/publish', [FolderManagementController::class, 'publish'])
         ->name('documents.folders.publish');
     Route::patch('/documents/manage/{folder}/unpublish', [FolderManagementController::class, 'unpublish'])
@@ -119,6 +122,39 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/documents/{document}/viewer', [DocumentController::class, 'viewer'])->name('documents.viewer');
     Route::get('/documents/{document}/download', [DocumentController::class, 'downloadViewer'])->name('documents.download');
     Route::get('/documents/{document}/original', [DocumentController::class, 'downloadOriginal'])->name('documents.original');
+
+    Route::get('/administration/organization', [OrganizationController::class, 'index'])
+        ->name('administration.organization.index');
+    Route::post('/administration/organization/divisions', [OrganizationController::class, 'storeDivision'])
+        ->name('administration.organization.divisions.store');
+    Route::patch('/administration/organization/divisions/{division}', [OrganizationController::class, 'updateDivision'])
+        ->name('administration.organization.divisions.update');
+    Route::delete('/administration/organization/divisions/{division}', [OrganizationController::class, 'destroyDivision'])
+        ->name('administration.organization.divisions.destroy');
+    Route::post('/administration/organization/subdivisions', [OrganizationController::class, 'storeSubdivision'])
+        ->name('administration.organization.subdivisions.store');
+    Route::patch('/administration/organization/subdivisions/{subdivision}', [OrganizationController::class, 'updateSubdivision'])
+        ->name('administration.organization.subdivisions.update');
+    Route::delete('/administration/organization/subdivisions/{subdivision}', [OrganizationController::class, 'destroySubdivision'])
+        ->name('administration.organization.subdivisions.destroy');
+    Route::post('/administration/organization/departments', [OrganizationController::class, 'storeDepartment'])
+        ->name('administration.organization.departments.store');
+    Route::patch('/administration/organization/departments/{department}', [OrganizationController::class, 'updateDepartment'])
+        ->name('administration.organization.departments.update');
+    Route::delete('/administration/organization/departments/{department}', [OrganizationController::class, 'destroyDepartment'])
+        ->name('administration.organization.departments.destroy');
+    Route::post('/administration/organization/locations', [OrganizationController::class, 'storeLocation'])
+        ->name('administration.organization.locations.store');
+    Route::patch('/administration/organization/locations/{location}', [OrganizationController::class, 'updateLocation'])
+        ->name('administration.organization.locations.update');
+    Route::delete('/administration/organization/locations/{location}', [OrganizationController::class, 'destroyLocation'])
+        ->name('administration.organization.locations.destroy');
+    Route::post('/administration/organization/groups', [OrganizationController::class, 'storeGroup'])
+        ->name('administration.organization.groups.store');
+    Route::patch('/administration/organization/groups/{group}', [OrganizationController::class, 'updateGroup'])
+        ->name('administration.organization.groups.update');
+    Route::delete('/administration/organization/groups/{group}', [OrganizationController::class, 'destroyGroup'])
+        ->name('administration.organization.groups.destroy');
 
     Route::resource('/administration/subsidiaries', SubsidiaryController::class)
         ->except(['create', 'edit', 'show'])

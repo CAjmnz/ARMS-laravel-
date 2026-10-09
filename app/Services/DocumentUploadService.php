@@ -52,7 +52,12 @@ class DocumentUploadService
             try {
                 $this->validateFile($file);
                 $segments = $this->relativePathSegments((string) $relativePaths[$index], $file->getClientOriginalName());
-                array_pop($segments);
+                $requestedFilename = array_pop($segments);
+                $actualExtension = strtolower((string) $file->getClientOriginalExtension());
+                $requestedExtension = strtolower((string) pathinfo($requestedFilename, PATHINFO_EXTENSION));
+                if ($requestedExtension === '' || $requestedExtension !== $actualExtension) {
+                    throw ValidationException::withMessages(['folder_files' => 'You can rename the file, but you cannot change its extension. Restore the original extension to upload this file.']);
+                }
                 if (! $preserveSourceRoot) array_shift($segments);
                 $parent = $destination;
                 foreach ($segments as $segment) {
@@ -62,7 +67,7 @@ class DocumentUploadService
                 }
                 // Folder imports receive a separately stored protected viewer copy.
                 // The viewer route therefore never needs to expose or fall back to the original key.
-                $results[] = ['ok' => true, 'document' => $this->storeOne($parent, $file, $file, $actor, $context)];
+                $results[] = ['ok' => true, 'document' => $this->storeOne($parent, $file, $file, $actor, $context, $requestedFilename)];
             } catch (\Throwable $exception) {
                 foreach (array_reverse($created) as $folder) if (! $folder->children()->exists() && ! $folder->documents()->exists()) $folder->delete();
                 report($exception);
@@ -72,9 +77,9 @@ class DocumentUploadService
         return $results;
     }
 
-    private function storeOne(Folder $folder, UploadedFile $original, ?UploadedFile $viewer, User $actor, array $context): Document
+    private function storeOne(Folder $folder, UploadedFile $original, ?UploadedFile $viewer, User $actor, array $context, ?string $requestedFilename = null): Document
     {
-        $originalMeta = $this->validateFile($original);
+        $originalMeta = $this->validateFile($original, $requestedFilename);
         $viewerMeta = $viewer ? $this->validateFile($viewer) : null;
 
         if ($viewer) {
@@ -150,16 +155,16 @@ class DocumentUploadService
         $path = str_replace('\\\\', '/', trim($path));
         if ($path === '' || str_starts_with($path, '/') || str_contains($path, '..') || str_contains($path, "\0")) throw ValidationException::withMessages(['folder_files' => 'The folder path is invalid.']);
         $segments = array_values(array_filter(explode('/', $path), fn (string $segment) => $segment !== ''));
-        if (count($segments) < 2 || count($segments) > 51 || basename($path) !== $originalName) throw ValidationException::withMessages(['folder_files' => 'The folder structure is invalid.']);
+        if (count($segments) < 2 || count($segments) > 51) throw ValidationException::withMessages(['folder_files' => 'The folder structure is invalid.']);
         foreach ($segments as $segment) {
             if (mb_strlen($segment) > 250 || preg_match('/[\\x00-\\x1F\\x7F<>:"\\\\|?*]/u', $segment) || rtrim($segment, '. ') !== $segment || Str::slug($segment) === '') throw ValidationException::withMessages(['folder_files' => 'A folder name contains invalid path characters.']);
         }
         return $segments;
     }
 
-    private function validateFile(UploadedFile $file): array
+    private function validateFile(UploadedFile $file, ?string $requestedName = null): array
     {
-        $originalName = trim($file->getClientOriginalName());
+        $originalName = trim($requestedName ?? $file->getClientOriginalName());
         if ($originalName === '' || strlen($originalName) > 250 || preg_match('/[\\x00-\\x1F\\x7F]/u', $originalName) || str_contains($originalName, '..') || str_contains($originalName, '/') || str_contains($originalName, '\\\\')) {
             throw ValidationException::withMessages(['original_files' => 'The filename is invalid.']);
         }
