@@ -69,6 +69,24 @@ const formatSize = (bytes?: number | null) => {
     return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 };
 
+function withArmsTabId(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (typeof window === 'undefined') return url;
+
+    const tabId = window.sessionStorage.getItem('arms_tab_id');
+    if (!tabId) return url;
+
+    try {
+        const previewUrl = new URL(url, window.location.origin);
+        if (previewUrl.origin === window.location.origin) {
+            previewUrl.searchParams.set('arms_tab_id', tabId);
+        }
+        return previewUrl.toString();
+    } catch {
+        return url;
+    }
+}
+
 function PortalDocumentThumbnail({ document }: { document: DocumentItem }) {
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(document.type.toUpperCase());
 
@@ -79,7 +97,7 @@ function PortalDocumentThumbnail({ document }: { document: DocumentItem }) {
     if (isImage) {
         return (
             <img
-                src={document.viewer_url}
+                src={withArmsTabId(document.viewer_url) ?? undefined}
                 alt={document.name}
                 loading="lazy"
                 className="h-full w-full object-contain"
@@ -89,7 +107,7 @@ function PortalDocumentThumbnail({ document }: { document: DocumentItem }) {
 
     return (
         <iframe
-            src={document.viewer_url}
+            src={withArmsTabId(document.viewer_url) ?? undefined}
             title={`Preview of ${document.name}`}
             tabIndex={-1}
             className="pointer-events-none h-full w-full border-0 bg-white"
@@ -320,15 +338,18 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                         <>
                         {folderItems.length > 0 && (
                             <>
-                            <div className="grid grid-cols-4 gap-4 p-5 sm:p-6">
+                            <div className="grid gap-3 p-5 sm:grid-cols-2 sm:p-6 xl:grid-cols-4">
                                 {folderItems.map((folder) => (
-                                <div key={`folder-${folder.id}`} className="group rounded-2xl border border-stone-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <Link href={folder.open_url} className="grid h-12 w-12 place-items-center rounded-xl bg-emerald-50 text-arms-green"><ArmsIcon name="folder" className="h-6 w-6" /></Link>
-                                        <button type="button" onClick={() => togglePin(folder.pin_url)} title={folder.is_pinned ? 'Unpin' : 'Pin'} className={`rounded-lg p-2 ${folder.is_pinned ? 'bg-amber-50 text-amber-600' : 'text-stone-400 hover:bg-stone-50'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
+                                <div key={`folder-${folder.id}`} className="group relative overflow-hidden rounded-xl border border-stone-200 bg-[#fffdf5] p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-[#b7d9cb] hover:shadow-md">
+                                    <div className="flex h-9 items-center justify-between px-0.5">
+                                        <span className="text-[10px] font-bold uppercase tracking-wide text-stone-400">Folder</span>
+                                        <button type="button" onClick={() => togglePin(folder.pin_url)} title={folder.is_pinned ? 'Unpin' : 'Pin'} className={`rounded-lg p-1.5 ${folder.is_pinned ? 'bg-amber-50 text-amber-600' : 'text-stone-400 hover:bg-stone-100'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
                                     </div>
-                                    <Link href={folder.open_url} className="mt-4 block truncate font-semibold text-[#173d33] hover:text-arms-green">{folder.name}</Link>
-                                    <p className="mt-1 text-xs text-stone-500">{folder.children_count} folders · {folder.documents_count} files</p>
+                                    <Link href={folder.open_url} className="grid h-[120px] place-items-center overflow-hidden rounded-lg border border-stone-200 bg-white shadow-inner">
+                                        <span className="grid h-20 w-24 place-items-center rounded-2xl bg-amber-50 text-amber-500 shadow-sm ring-1 ring-amber-100 transition-transform duration-200 group-hover:scale-105"><ArmsIcon name="folder" className="h-16 w-16" /></span>
+                                    </Link>
+                                    <Link href={folder.open_url} className="mt-3 block truncate text-sm font-semibold text-[#073d2f] hover:text-arms-green">{folder.name}</Link>
+                                    <p className="mt-1 text-[11px] text-stone-500">{folder.children_count} {folder.children_count === 1 ? 'subfolder' : 'subfolders'} · {formatDate(folder.modified_at)}</p><p className="mt-1 text-[11px] text-stone-500">{folder.documents_count} files</p>
                                     <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-3 text-xs text-stone-500">
                                         <span>{formatDate(folder.modified_at)}</span>
                                         <button type="button" onClick={() => setInfoTarget({ kind: 'folder', item: folder })} className="font-semibold text-arms-green hover:underline">Details</button>
@@ -350,37 +371,37 @@ export default function Documents({ summary, currentFolder, breadcrumbs, folders
                         )}
                         {documentItems.length > 0 && (
                             <>
-                            <div className="grid w-full grid-cols-4 gap-4 p-5 sm:p-6">
+                            <div className="grid w-full gap-3 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-4 xl:grid-cols-5">
                                 {documentItems.map((document) => (
-                                <div key={`document-${document.id}`} className={`group rounded-2xl border bg-white p-4 transition hover:-translate-y-0.5 hover:shadow-md ${selectedDocumentIds.has(document.id) ? 'border-emerald-400 ring-2 ring-emerald-100' : 'border-stone-200 hover:border-emerald-200'}`}>
-                                    <div className="relative mb-4 h-40 overflow-hidden rounded-xl border border-stone-200 bg-stone-100">
+                                <div key={`document-${document.id}`} className={`group relative overflow-hidden rounded-xl border bg-[#fffdf5] p-3 text-left shadow-sm transition-all ${selectedDocumentIds.has(document.id) ? 'border-arms-green bg-emerald-50/60 ring-2 ring-emerald-100' : 'border-stone-200 hover:-translate-y-0.5 hover:border-[#b7d9cb] hover:shadow-md'}`}>
+                                    <div className="flex h-9 items-center justify-between px-0.5">
+                                        {summary.can_download && document.download_url ? (
+                                            <input
+                                                type="checkbox"
+                                                aria-label={`Select ${document.name}`}
+                                                checked={selectedDocumentIds.has(document.id)}
+                                                onChange={() => toggleDocumentSelection(document.id)}
+                                                onClick={(event) => event.stopPropagation()}
+                                                disabled={batchDownloadProcessing}
+                                                className="rounded border-stone-300 text-arms-green focus:ring-arms-green"
+                                            />
+                                        ) : <span />}
+                                        <button type="button" onClick={() => togglePin(document.pin_url)} title={document.is_pinned ? 'Unpin' : 'Pin'} className={`rounded-lg p-1.5 ${document.is_pinned ? 'bg-amber-50 text-amber-600' : 'text-stone-400 hover:bg-stone-100'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
+                                    </div>
+                                    <div className="relative mb-0 overflow-hidden rounded-lg border border-stone-200 bg-white shadow-inner">
                                         <button
                                             type="button"
                                             disabled={!document.viewer_url}
                                             onClick={() => document.viewer_url && setViewingDocument(document)}
-                                            className="absolute inset-0 grid place-items-center disabled:cursor-default"
+                                            className="grid h-48 w-full place-items-center overflow-hidden disabled:cursor-default"
                                             aria-label={`Preview ${document.name}`}
                                         >
                                             <PortalDocumentThumbnail document={document} />
                                         </button>
-                                        <div className="absolute left-2 top-2 z-10 flex items-center gap-2">
-                                            {summary.can_download && document.download_url && (
-                                                <input
-                                                    type="checkbox"
-                                                    aria-label={`Select ${document.name}`}
-                                                    checked={selectedDocumentIds.has(document.id)}
-                                                    onChange={() => toggleDocumentSelection(document.id)}
-                                                    onClick={(event) => event.stopPropagation()}
-                                                    disabled={batchDownloadProcessing}
-                                                    className="h-4 w-4 rounded border-stone-300 bg-white text-arms-green shadow-sm focus:ring-arms-green"
-                                                />
-                                            )}
-                                        </div>
-                                        <button type="button" onClick={() => togglePin(document.pin_url)} title={document.is_pinned ? 'Unpin' : 'Pin'} className={`absolute right-2 top-2 z-10 rounded-lg bg-white/90 p-2 shadow-sm backdrop-blur ${document.is_pinned ? 'text-amber-600' : 'text-stone-400 hover:bg-white'}`}><ArmsIcon name="pin" className="h-4 w-4" /></button>
                                     </div>
-                                    <button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="block w-full truncate text-left font-semibold text-[#173d33] hover:text-arms-green disabled:cursor-default">{document.name}</button>
-                                    <p className="mt-1 text-xs text-stone-500">{document.type} · {formatSize(document.size)}</p>
-                                    <div className="mt-4 flex items-center justify-between border-t border-stone-100 pt-3">
+                                    <button type="button" disabled={!document.viewer_url} onClick={() => document.viewer_url && setViewingDocument(document)} className="block w-full truncate px-0.5 pt-2.5 text-left text-sm font-semibold text-[#073d2f] hover:text-arms-green disabled:cursor-default">{document.name}</button>
+                                    <p className="mt-1 truncate text-[11px] text-stone-500">{document.type} · {formatSize(document.size)} · {formatDate(document.modified_at)}</p>
+                                    <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-3">
                                         <button type="button" onClick={() => setInfoTarget({ kind: 'document', item: document })} className="text-xs font-semibold text-arms-green hover:underline">Details</button>
                                         {document.download_url && <a href={document.download_url} className="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-arms-green hover:bg-emerald-100">Download</a>}
                                     </div>
@@ -563,13 +584,22 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
     };
     const moveDrag = (event: React.MouseEvent<HTMLDivElement>) => {
         if (!dragging.current) return;
-        setPosition({ x: positionOrigin.current.x + event.clientX - dragOrigin.current.x, y: positionOrigin.current.y + event.clientY - dragOrigin.current.y });
+        // Keep the image within a bounded pan range so it cannot be dragged completely out of view.
+        const maxX = Math.max(80, event.currentTarget.clientWidth * 0.35);
+        const maxY = Math.max(80, event.currentTarget.clientHeight * 0.35);
+        const nextX = positionOrigin.current.x + event.clientX - dragOrigin.current.x;
+        const nextY = positionOrigin.current.y + event.clientY - dragOrigin.current.y;
+        setPosition({
+            x: Math.min(maxX, Math.max(-maxX, nextX)),
+            y: Math.min(maxY, Math.max(-maxY, nextY)),
+        });
     };
     const stopDrag = () => { dragging.current = false; };
 
-    const viewerSource = current.viewer_url && isPdf
-        ? `${current.viewer_url}#page=${page}&zoom=${fit ? 'page-fit' : Math.round(zoom * 100)}`
-        : current.viewer_url;
+    const protectedViewerUrl = withArmsTabId(current.viewer_url);
+    const viewerSource = protectedViewerUrl && isPdf
+        ? `${protectedViewerUrl}#page=${page}&zoom=${fit ? 'page-fit' : Math.round(zoom * 100)}`
+        : protectedViewerUrl;
     const details = [
         ['File type', current.type],
         ['File size', formatSize(current.size)],
@@ -619,10 +649,10 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
                 <div className="flex min-h-0 flex-1 overflow-hidden bg-[#24313a]">
                     {showDocumentSidebar && <aside className="hidden w-52 shrink-0 overflow-y-auto border-r border-white/10 bg-[#f8faf9] p-3 sm:block">
                         <p className="mb-3 px-1 text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500">Files in this folder</p>
-                        <div className="space-y-2">{documents.map((item) => <button key={item.id} type="button" onClick={() => resetForDocument(item)} className={`w-full rounded-xl border p-2 text-left ${item.id === current.id ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100' : 'border-stone-200 bg-white hover:border-emerald-300'}`}><div className="grid h-20 place-items-center overflow-hidden rounded-lg bg-stone-100">{['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(item.type.toUpperCase()) && item.viewer_url ? <img src={item.viewer_url} alt="" loading="lazy" className="h-full w-full object-contain" /> : <ArmsIcon name="document" className="h-8 w-8 text-arms-green" />}</div><p className="mt-2 truncate text-[11px] font-semibold text-stone-700">{item.name}</p><p className="mt-0.5 text-[10px] uppercase text-stone-400">{item.type}</p></button>)}</div>
+                        <div className="space-y-2">{documents.map((item) => <button key={item.id} type="button" onClick={() => resetForDocument(item)} className={`w-full rounded-xl border p-2 text-left ${item.id === current.id ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100' : 'border-stone-200 bg-white hover:border-emerald-300'}`}><div className="grid h-20 place-items-center overflow-hidden rounded-lg bg-stone-100">{['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(item.type.toUpperCase()) && item.viewer_url ? <img src={withArmsTabId(item.viewer_url) ?? undefined} alt="" loading="lazy" className="h-full w-full object-contain" /> : <ArmsIcon name="document" className="h-8 w-8 text-arms-green" />}</div><p className="mt-2 truncate text-[11px] font-semibold text-stone-700">{item.name}</p><p className="mt-0.5 text-[10px] uppercase text-stone-400">{item.type}</p></button>)}</div>
                     </aside>}
                     <div onMouseDown={startDrag} onMouseMove={moveDrag} onMouseUp={stopDrag} onMouseLeave={stopDrag} onWheel={(event) => { if (event.ctrlKey && (isImage || isPdf)) { event.preventDefault(); adjustZoom(event.deltaY < 0 ? 0.1 : -0.1); } }} className={`relative min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-5 ${isImage ? 'cursor-grab active:cursor-grabbing' : ''}`}>
-                        {!viewerSource ? <div className="grid h-full min-h-[420px] place-items-center rounded-xl bg-white text-stone-500">Protected preview is not available.</div> : isImage ? <div className="grid min-h-full min-w-full place-items-center overflow-visible"><img draggable={false} src={viewerSource} alt={current.name} className={`select-none ${fit ? 'max-h-[calc(100vh-170px)] max-w-full object-contain' : 'max-h-none max-w-none'}`} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${fit ? 1 : zoom})`, transformOrigin: 'center center' }} /></div> : isPdf ? <ProtectedPdfCanvas src={current.viewer_url!} page={page} onPageChange={(nextPage) => setPage(Math.min(Math.max(nextPage, 1), pdfPageCount || nextPage))} zoom={zoom} fit={fit} mode={pdfViewMode} onPageCount={(count) => { setPdfPageCount(count); if (count > 0) setPage((value) => Math.min(value, count)); }} onVisiblePageChange={setPage} className="mx-auto w-full" /> : <iframe title={current.name} src={viewerSource} className="h-full min-h-[520px] w-full rounded-lg border-0 bg-white" />}
+                        {!viewerSource ? <div className="grid h-full min-h-[420px] place-items-center rounded-xl bg-white text-stone-500">Protected preview is not available.</div> : isImage ? <div className="grid min-h-full min-w-full place-items-center overflow-visible"><img draggable={false} src={viewerSource} alt={current.name} className={`select-none ${fit ? 'max-h-[calc(100vh-170px)] max-w-full object-contain' : 'max-h-none max-w-none'}`} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${fit ? 1 : zoom})`, transformOrigin: 'center center' }} /></div> : isPdf ? <ProtectedPdfCanvas src={protectedViewerUrl!} page={page} onPageChange={(nextPage) => setPage(Math.min(Math.max(nextPage, 1), pdfPageCount || nextPage))} zoom={zoom} fit={fit} mode={pdfViewMode} onPageCount={(count) => { setPdfPageCount(count); if (count > 0) setPage((value) => Math.min(value, count)); }} onVisiblePageChange={setPage} className="mx-auto w-full" /> : <iframe title={current.name} src={viewerSource} className="h-full min-h-[520px] w-full rounded-lg border-0 bg-white" />}
                     </div>
                     {showFileDetails && <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-white/10 bg-white p-4 lg:block"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-arms-green">File details</p><h3 className="mt-2 break-words text-sm font-semibold text-[#073d2f]">{current.name}</h3><dl className="mt-4 space-y-3">{details.map(([label, value]) => <div key={label} className="border-b border-stone-100 pb-2"><dt className="text-[11px] text-stone-500">{label}</dt><dd className="mt-1 break-words text-xs font-semibold text-stone-800">{value}</dd></div>)}</dl><p className="mt-4 rounded-lg bg-emerald-50 p-3 text-[11px] leading-5 text-emerald-900">This preview is served through your authorized document link. Access permissions still apply.</p></aside>}
                 </div>

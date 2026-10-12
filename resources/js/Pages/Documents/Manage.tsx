@@ -2753,6 +2753,24 @@ function FolderCard({
         </article>
     );
 }
+function withArmsTabId(url: string | null | undefined): string | null {
+    if (!url) return null;
+    if (typeof window === 'undefined') return url;
+
+    const tabId = window.sessionStorage.getItem('arms_tab_id');
+    if (!tabId) return url;
+
+    try {
+        const previewUrl = new URL(url, window.location.origin);
+        if (previewUrl.origin === window.location.origin) {
+            previewUrl.searchParams.set('arms_tab_id', tabId);
+        }
+        return previewUrl.toString();
+    } catch {
+        return url;
+    }
+}
+
 function DocumentThumbnail({ document }: { document: DocumentItem }) {
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(
         document.type.toUpperCase(),
@@ -2762,7 +2780,7 @@ function DocumentThumbnail({ document }: { document: DocumentItem }) {
     if (isImage)
         return (
             <img
-                src={document.viewer_url}
+                src={withArmsTabId(document.viewer_url) ?? undefined}
                 alt=""
                 className="h-full w-full object-contain"
                 loading="lazy"
@@ -2770,7 +2788,7 @@ function DocumentThumbnail({ document }: { document: DocumentItem }) {
         );
     return (
         <iframe
-            src={document.viewer_url}
+            src={withArmsTabId(document.viewer_url) ?? undefined}
             title={'Preview of ' + document.name}
             tabIndex={-1}
             className="pointer-events-none h-full w-full border-0 bg-white"
@@ -2979,10 +2997,11 @@ function LegacyDocumentViewer({
         current.type.toUpperCase(),
     );
     const isPdf = current.type.toUpperCase() === 'PDF';
+    const protectedViewerUrl = withArmsTabId(current.viewer_url);
     const viewerSource =
-        current.viewer_url && isPdf
-            ? `${current.viewer_url}#page=${pdfViewMode === 'vertical' ? 1 : page}&zoom=${pdfViewMode === 'vertical' ? 'page-width' : fit ? 'page-fit' : Math.round(zoom * 100)}`
-            : current.viewer_url;
+        protectedViewerUrl && isPdf
+            ? `${protectedViewerUrl}#page=${pdfViewMode === 'vertical' ? 1 : page}&zoom=${pdfViewMode === 'vertical' ? 'page-width' : fit ? 'page-fit' : Math.round(zoom * 100)}`
+            : protectedViewerUrl;
 
     useEffect(() => {
         const previousOverflow = window.document.body.style.overflow;
@@ -3564,10 +3583,11 @@ function LegacyDocumentViewer({
                                 ].includes(item.type.toUpperCase());
                                 const itemIsPdf =
                                     item.type.toUpperCase() === 'PDF';
-                                const itemSource = item.viewer_url
+                                const protectedItemUrl = withArmsTabId(item.viewer_url);
+                                const itemSource = protectedItemUrl
                                     ? itemIsPdf
-                                        ? `${item.viewer_url}#page=1&zoom=${fit ? 'page-width' : Math.round(zoom * 100)}`
-                                        : item.viewer_url
+                                        ? `${protectedItemUrl}#page=1&zoom=${fit ? 'page-width' : Math.round(zoom * 100)}`
+                                        : protectedItemUrl
                                     : null;
 
                                 return (
@@ -3646,7 +3666,7 @@ function LegacyDocumentViewer({
                             </div>
                         ) : isPdf ? (
                             <ProtectedPdfCanvas
-                                src={current.viewer_url ?? viewerSource}
+                                src={protectedViewerUrl ?? viewerSource ?? ''}
                                 page={page}
                                 onPageChange={(nextPage) => setPage(Math.min(Math.max(nextPage, 1), pdfPageCount || nextPage))}
                                 zoom={zoom}
