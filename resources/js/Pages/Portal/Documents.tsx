@@ -1,4 +1,5 @@
 import ArmsIcon from '@/Components/ArmsIcon';
+import ProtectedPdfCanvas from '@/Components/ProtectedPdfCanvas';
 import UserPortalLayout from '@/Layouts/UserPortalLayout';
 import { Head, Link, router } from '@inertiajs/react';
 import axios from 'axios';
@@ -502,12 +503,19 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
     const [zoom, setZoom] = useState(1);
     const [fit, setFit] = useState(true);
     const [page, setPage] = useState(1);
+    const [pdfPageCount, setPdfPageCount] = useState(0);
+    const [pdfViewMode, setPdfViewMode] = useState<'single' | 'vertical'>('single');
+    const [showDocumentSidebar, setShowDocumentSidebar] = useState(true);
+    const [showFileDetails, setShowFileDetails] = useState(true);
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const dragging = useRef(false);
     const dragOrigin = useRef({ x: 0, y: 0 });
     const positionOrigin = useRef({ x: 0, y: 0 });
     const index = documents.findIndex((document) => document.id === current.id);
-    const type = current.type.toUpperCase();
+    // Normalize legacy extensions ('.pdf'), MIME types ('application/pdf'), and filenames.
+    const declaredType = (current.type || '').split('/').pop()?.replace(/^\./, '').trim().toUpperCase() ?? '';
+    const filenameType = current.name.includes('.') ? current.name.split('.').pop()?.trim().toUpperCase() ?? '' : '';
+    const type = declaredType && declaredType !== 'FILE' ? declaredType : filenameType;
     const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(type);
     const isPdf = type === 'PDF';
 
@@ -516,6 +524,8 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
         setZoom(1);
         setFit(true);
         setPage(1);
+        setPdfPageCount(0);
+        setPdfViewMode('single');
         setPosition({ x: 0, y: 0 });
     };
 
@@ -560,63 +570,63 @@ function PortalProtectedViewer({ initialDocument, documents, folderPath, onClose
     const viewerSource = current.viewer_url && isPdf
         ? `${current.viewer_url}#page=${page}&zoom=${fit ? 'page-fit' : Math.round(zoom * 100)}`
         : current.viewer_url;
+    const details = [
+        ['File type', current.type],
+        ['File size', formatSize(current.size)],
+        ['Uploaded by', current.owner],
+        ['Last modified', formatDate(current.modified_at)],
+        ['Status', current.status],
+        ['Access', current.download_url ? 'View and download' : 'View only'],
+    ] as const;
 
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#012a21]/75 p-3 sm:p-4 backdrop-blur-sm">
-            <div role="dialog" aria-modal="true" aria-label={`Protected viewer for ${current.name}`} className="flex h-[94vh] w-full max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-                <header className="flex flex-wrap items-start justify-between gap-4 bg-[#073d2f] px-5 py-4 text-white sm:px-6">
-                    <div className="min-w-0">
-                        <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#e2b83b]">Protected RMS viewer</p>
-                        <h2 className="mt-1 truncate text-lg font-semibold sm:text-xl">{current.name}</h2>
-                        <p className="mt-1 truncate text-xs text-emerald-100">{folderPath} · Document {index + 1} of {documents.length}</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#012a21]/70 p-2 backdrop-blur-sm sm:p-4">
+            <div role="dialog" aria-modal="true" aria-label={`Protected viewer for ${current.name}`} className="flex h-[95vh] w-[97vw] max-w-[1440px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl sm:h-[91vh] sm:w-[93vw]">
+                <header className="flex flex-wrap items-center justify-between gap-3 bg-[#073d2f] px-4 py-3 text-white sm:px-5">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white/10 text-[#e2b83b]"><ArmsIcon name="document" className="h-5 w-5" /></span>
+                        <div className="min-w-0">
+                            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-[#e2b83b]">Document Viewer</p>
+                            <h2 className="truncate text-base font-semibold sm:text-lg">{current.name}</h2>
+                            <p className="truncate text-[11px] text-emerald-100">{folderPath} · File {index + 1} of {documents.length}</p>
+                        </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        {current.download_url && <a href={current.download_url} className="rounded-xl border border-white/30 bg-white/10 px-3 py-2 text-sm font-semibold hover:bg-white/20">Download</a>}
-                        <button type="button" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl border border-white/30 text-xl hover:bg-white/10" aria-label="Close protected viewer">×</button>
+                    <div className="flex shrink-0 items-center gap-2">
+                        {current.download_url && <a href={current.download_url} className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-xs font-semibold hover:bg-white/20">Download</a>}
+                        <button type="button" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg border border-white/30 text-xl hover:bg-white/10" aria-label="Close protected viewer">×</button>
                     </div>
                 </header>
 
-                <div className="flex flex-wrap items-center gap-2 border-b border-stone-200 bg-white px-4 py-3 text-sm">
-                    <button type="button" disabled={index <= 0} onClick={() => changeDocument(index - 1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">‹ Previous</button>
-                    <button type="button" disabled={index >= documents.length - 1} onClick={() => changeDocument(index + 1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">Next ›</button>
-                    <span className="mx-1 h-6 w-px bg-stone-200" />
-                    <button type="button" onClick={() => adjustZoom(-0.1)} disabled={!isImage && !isPdf} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">− Zoom</button>
-                    <span className="min-w-14 text-center font-semibold text-arms-green">{Math.round(zoom * 100)}%</span>
-                    <button type="button" onClick={() => adjustZoom(0.1)} disabled={!isImage && !isPdf} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">+ Zoom</button>
-                    <button type="button" onClick={() => { setFit(true); setZoom(1); setPosition({ x: 0, y: 0 }); }} disabled={!isImage && !isPdf} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">Fit to screen</button>
-                    <button type="button" onClick={() => { setFit(false); setZoom(1); setPosition({ x: 0, y: 0 }); }} disabled={!isImage && !isPdf} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">Actual size</button>
-                    {isPdf && <><span className="mx-1 h-6 w-px bg-stone-200" /><button type="button" onClick={() => setPage((value) => Math.max(1, value - 1))} disabled={page <= 1} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">Prev page</button><label className="flex items-center gap-2 text-stone-600">Page <input type="number" min={1} value={page} onChange={(event) => setPage(Math.max(1, Number(event.target.value) || 1))} className="w-16 rounded-lg border-stone-300 py-1.5 text-center text-sm" /></label><button type="button" onClick={() => setPage((value) => value + 1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">Next page</button></>}
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 bg-white px-3 py-2.5 text-xs sm:px-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" disabled={index <= 0} onClick={() => changeDocument(index - 1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">‹ Previous file</button>
+                        <button type="button" disabled={index >= documents.length - 1} onClick={() => changeDocument(index + 1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold disabled:opacity-35">Next file ›</button>
+                        {(isImage || isPdf) && <>
+                            <span className="mx-1 h-6 w-px bg-stone-200" />
+                            <button type="button" onClick={() => adjustZoom(-0.1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">−</button>
+                            <span className="min-w-12 text-center font-bold text-arms-green">{Math.round(zoom * 100)}%</span>
+                            <button type="button" onClick={() => adjustZoom(0.1)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">+</button>
+                            <button type="button" onClick={() => { setFit(true); setZoom(1); setPosition({ x: 0, y: 0 }); }} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">Fit</button>
+                        </>}
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {isPdf && <div className="flex rounded-lg border border-stone-200 bg-stone-50 p-1"><button type="button" onClick={() => setPdfViewMode('single')} className={`rounded-md px-3 py-1.5 font-bold ${pdfViewMode === 'single' ? 'bg-white text-arms-green shadow-sm' : 'text-stone-500'}`}>Single</button><button type="button" onClick={() => setPdfViewMode('vertical')} className={`rounded-md px-3 py-1.5 font-bold ${pdfViewMode === 'vertical' ? 'bg-white text-arms-green shadow-sm' : 'text-stone-500'}`}>Vertical</button></div>}
+                        <button type="button" onClick={() => setShowDocumentSidebar((value) => !value)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">{showDocumentSidebar ? 'Hide files' : 'Show files'}</button>
+                        <button type="button" onClick={() => setShowFileDetails((value) => !value)} className="rounded-lg border border-stone-300 px-3 py-2 font-semibold">{showFileDetails ? 'Hide details' : 'Details'}</button>
+                    </div>
                 </div>
 
-                <div
-                    onMouseDown={startDrag}
-                    onMouseMove={moveDrag}
-                    onMouseUp={stopDrag}
-                    onMouseLeave={stopDrag}
-                    onWheel={(event) => { if (event.ctrlKey && (isImage || isPdf)) { event.preventDefault(); adjustZoom(event.deltaY < 0 ? 0.1 : -0.1); } }}
-                    className={`relative min-h-0 flex-1 overflow-auto scroll-smooth bg-[#26343d] p-4 ${isImage ? 'cursor-grab active:cursor-grabbing' : ''}`}
-                >
-                    {!viewerSource ? (
-                        <div className="grid h-full min-h-[420px] place-items-center rounded-xl bg-white text-stone-500">Protected preview is not available.</div>
-                    ) : isImage ? (
-                        <div className="grid min-h-full min-w-full place-items-center overflow-visible">
-                            <img
-                                draggable={false}
-                                src={viewerSource}
-                                alt={current.name}
-                                className={`select-none ${fit ? 'max-h-full max-w-full object-contain' : 'max-h-none max-w-none'}`}
-                                style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`, transformOrigin: 'center center' }}
-                            />
-                        </div>
-                    ) : (
-                        <iframe title={current.name} src={viewerSource} className="h-full min-h-[520px] w-full rounded-lg border-0 bg-white" />
-                    )}
+                <div className="flex min-h-0 flex-1 overflow-hidden bg-[#24313a]">
+                    {showDocumentSidebar && <aside className="hidden w-52 shrink-0 overflow-y-auto border-r border-white/10 bg-[#f8faf9] p-3 sm:block">
+                        <p className="mb-3 px-1 text-[10px] font-bold uppercase tracking-[0.15em] text-stone-500">Files in this folder</p>
+                        <div className="space-y-2">{documents.map((item) => <button key={item.id} type="button" onClick={() => resetForDocument(item)} className={`w-full rounded-xl border p-2 text-left ${item.id === current.id ? 'border-emerald-600 bg-emerald-50 ring-1 ring-emerald-100' : 'border-stone-200 bg-white hover:border-emerald-300'}`}><div className="grid h-20 place-items-center overflow-hidden rounded-lg bg-stone-100">{['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(item.type.toUpperCase()) && item.viewer_url ? <img src={item.viewer_url} alt="" loading="lazy" className="h-full w-full object-contain" /> : <ArmsIcon name="document" className="h-8 w-8 text-arms-green" />}</div><p className="mt-2 truncate text-[11px] font-semibold text-stone-700">{item.name}</p><p className="mt-0.5 text-[10px] uppercase text-stone-400">{item.type}</p></button>)}</div>
+                    </aside>}
+                    <div onMouseDown={startDrag} onMouseMove={moveDrag} onMouseUp={stopDrag} onMouseLeave={stopDrag} onWheel={(event) => { if (event.ctrlKey && (isImage || isPdf)) { event.preventDefault(); adjustZoom(event.deltaY < 0 ? 0.1 : -0.1); } }} className={`relative min-h-0 min-w-0 flex-1 overflow-auto p-4 sm:p-5 ${isImage ? 'cursor-grab active:cursor-grabbing' : ''}`}>
+                        {!viewerSource ? <div className="grid h-full min-h-[420px] place-items-center rounded-xl bg-white text-stone-500">Protected preview is not available.</div> : isImage ? <div className="grid min-h-full min-w-full place-items-center overflow-visible"><img draggable={false} src={viewerSource} alt={current.name} className={`select-none ${fit ? 'max-h-[calc(100vh-170px)] max-w-full object-contain' : 'max-h-none max-w-none'}`} style={{ transform: `translate(${position.x}px, ${position.y}px) scale(${fit ? 1 : zoom})`, transformOrigin: 'center center' }} /></div> : isPdf ? <ProtectedPdfCanvas src={current.viewer_url!} page={page} onPageChange={(nextPage) => setPage(Math.min(Math.max(nextPage, 1), pdfPageCount || nextPage))} zoom={zoom} fit={fit} mode={pdfViewMode} onPageCount={(count) => { setPdfPageCount(count); if (count > 0) setPage((value) => Math.min(value, count)); }} onVisiblePageChange={setPage} className="mx-auto w-full" /> : <iframe title={current.name} src={viewerSource} className="h-full min-h-[520px] w-full rounded-lg border-0 bg-white" />}
+                    </div>
+                    {showFileDetails && <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-white/10 bg-white p-4 lg:block"><p className="text-[10px] font-bold uppercase tracking-[0.15em] text-arms-green">File details</p><h3 className="mt-2 break-words text-sm font-semibold text-[#073d2f]">{current.name}</h3><dl className="mt-4 space-y-3">{details.map(([label, value]) => <div key={label} className="border-b border-stone-100 pb-2"><dt className="text-[11px] text-stone-500">{label}</dt><dd className="mt-1 break-words text-xs font-semibold text-stone-800">{value}</dd></div>)}</dl><p className="mt-4 rounded-lg bg-emerald-50 p-3 text-[11px] leading-5 text-emerald-900">This preview is served through your authorized document link. Access permissions still apply.</p></aside>}
                 </div>
-
-                <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 bg-white px-5 py-3 text-xs text-stone-500">
-                    <span className="truncate">{folderPath}</span>
-                    <span>{isImage ? 'Drag image to pan · Ctrl + wheel to zoom' : isPdf ? 'PDF page and zoom controls use the protected browser viewer.' : 'Protected viewer copy only.'}</span>
-                </footer>
+                <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 bg-white px-4 py-2.5 text-[11px] text-stone-500"><span className="truncate">{folderPath}</span><span>{isPdf ? `PDF · Page ${Math.min(page, pdfPageCount || page)} of ${pdfPageCount || '…'}` : isImage ? 'Image preview · Ctrl + wheel to zoom' : 'Protected preview'}</span></footer>
             </div>
         </div>
     );

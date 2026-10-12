@@ -313,8 +313,8 @@ export default function AuthenticatedLayout({
                                         aria-label="Open account menu"
                                         className="flex items-center gap-2.5 rounded-xl bg-transparent px-1 py-1 text-left transition hover:bg-[#effaf4] focus:outline-none focus:ring-2 focus:ring-emerald-100"
                                     >
-                                        <span className="flex h-[42px] w-[42px] items-center justify-center rounded-full border border-[#c6ead7] bg-gradient-to-br from-[#dff7eb] to-[#bdf0d4] text-xs font-extrabold text-[#07513c] shadow-[0_5px_14px_rgba(6,59,45,0.1)]">
-                                            {initials(auth.user.name)}
+                                        <span className="flex h-[42px] w-[42px] items-center justify-center overflow-hidden rounded-full border border-[#c6ead7] bg-gradient-to-br from-[#dff7eb] to-[#bdf0d4] text-xs font-extrabold text-[#07513c] shadow-[0_5px_14px_rgba(6,59,45,0.1)]">
+                                            {auth.user.avatar_path ? <img src={`/storage/${auth.user.avatar_path}`} alt={`${auth.user.name} profile`} className="h-full w-full object-cover" /> : initials(auth.user.name)}
                                         </span>
                                         <span className="hidden sm:block">
                                             <span className="block max-w-36 truncate text-xs font-bold text-[#18322b]">

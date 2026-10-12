@@ -202,6 +202,36 @@ class UserPortalDocumentsTest extends TestCase
                 ->where('currentFolder', null));
     }
 
+    public function test_folder_grant_shows_unpublished_subfolders_and_their_documents(): void
+    {
+        [$root, $child, $authorized, $hidden] = $this->records();
+        $child->update(['is_published' => false]);
+        $user = $this->user(Role::LEVEL_2);
+
+        DocumentAccess::query()->create([
+            'folder_id' => $root->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('portal.documents'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('folders', 1)
+                ->where('folders.0.id', $root->id));
+
+        $this->actingAs($user)
+            ->get(route('portal.documents', $child))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('currentFolder.id', $child->id)
+                ->has('documents', 2)
+                ->where('documents.0.id', $authorized->id)
+                ->where('documents.1.id', $hidden->id));
+    }
+
     /** @return array{Folder, Folder, Document, Document} */
     private function records(): array
     {

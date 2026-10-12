@@ -12,6 +12,7 @@ use App\Models\Subsidiary;
 use App\Models\User;
 use Database\Seeders\RolePermissionSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -68,6 +69,32 @@ class ProtectedDocumentViewerTest extends TestCase
         $this->assertDatabaseCount('activity_logs', 2);
         $this->assertDatabaseHas('activity_logs', ['user_id' => $user->id, 'event' => 'document.viewed', 'auditable_id' => $pdf->id]);
         $this->assertDatabaseHas('activity_logs', ['user_id' => $user->id, 'event' => 'document.viewed', 'auditable_id' => $image->id]);
+    }
+
+    public function test_embedded_viewer_uses_the_same_origin_referer_tab_identity(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document] = $this->document('Embedded Preview PDF', 'pdf', 'application/pdf');
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+
+        DB::table('arms_tab_sessions')->insert([
+            'tab_id' => 'preview-tab-123',
+            'user_id' => $user->id,
+            'last_activity' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $this->withHeaders([
+            'Referer' => url('/documents/manage?arms_tab_id=preview-tab-123'),
+        ])->get(route('documents.viewer', $document))
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
     }
 
     public function test_level_one_can_view_but_cannot_download_the_protected_viewer(): void

@@ -2,7 +2,7 @@ import ArmsIcon from '@/Components/ArmsIcon';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { PageProps } from '@/types';
 import { Head, router, useForm } from '@inertiajs/react';
-import { FormEvent } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import UpdatePasswordForm from './Partials/UpdatePasswordForm';
 
 type ProfileSummary = {
@@ -16,6 +16,7 @@ type ProfileSummary = {
     role?: string | null;
     member_since?: string | null;
     last_login_at?: string | null;
+    avatar_url?: string | null;
 };
 
 const formatDate = (value?: string | null) =>
@@ -48,15 +49,35 @@ export default function Edit({
     const form = useForm({
         name: profile.name ?? '',
         email: profile.email ?? '',
+        avatar: null as File | null,
     });
+    const [avatarPreview, setAvatarPreview] = useState<string | null>(profile.avatar_url ?? null);
+    const [profileModalOpen, setProfileModalOpen] = useState(false);
+
+    useEffect(() => {
+        if (!form.data.avatar) {
+            setAvatarPreview(profile.avatar_url ?? null);
+            return;
+        }
+
+        const previewUrl = URL.createObjectURL(form.data.avatar);
+        setAvatarPreview(previewUrl);
+        return () => URL.revokeObjectURL(previewUrl);
+    }, [form.data.avatar, profile.avatar_url]);
 
     const submitProfile = (event: FormEvent) => {
         event.preventDefault();
-        form.patch(route('profile.update'), { preserveScroll: true });
+        // Send multipart uploads as POST with Laravel method spoofing so PHP parses name/email and avatar.
+        form.transform((data) => ({ ...data, _method: 'patch' }));
+        form.post(route('profile.update'), {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => setProfileModalOpen(false),
+        });
     };
 
     const resetProfile = () => {
-        form.setData({ name: profile.name ?? '', email: profile.email ?? '' });
+        form.setData({ name: profile.name ?? '', email: profile.email ?? '', avatar: null });
         form.clearErrors();
     };
 
@@ -80,8 +101,13 @@ export default function Edit({
                         <div className="text-xs font-bold uppercase tracking-[0.16em] text-[#087451]">Profile Summary</div>
 
                         <div className="mt-7 text-center">
-                            <div className="mx-auto grid h-36 w-36 place-items-center rounded-full border-8 border-emerald-50 bg-[#0b5d45] font-serif text-4xl font-semibold text-white shadow-inner">
-                                {initials(profile.name)}
+                            <div className="relative mx-auto w-fit">
+                                <div className="grid h-36 w-36 place-items-center overflow-hidden rounded-full border-8 border-emerald-50 bg-[#0b5d45] font-serif text-4xl font-semibold text-white shadow-inner">
+                                    {avatarPreview ? <img src={avatarPreview} alt={`${profile.name} profile`} className="h-full w-full object-cover" /> : initials(profile.name)}
+                                </div>
+                                <button type="button" onClick={() => setProfileModalOpen(true)} aria-label="Edit profile" title="Edit profile" className="absolute bottom-1 right-1 grid h-10 w-10 place-items-center rounded-full border-4 border-white bg-[#087451] text-white shadow-md transition hover:bg-[#055b40]">
+                                    <span aria-hidden="true" className="text-xl leading-none">+</span>
+                                </button>
                             </div>
                             <h2 className="mt-5 text-2xl font-semibold text-[#082f25]">{profile.name}</h2>
                             <p className="mt-1 text-sm font-medium text-[#087451]">{profile.position ?? 'Authorized Personnel'}</p>
@@ -151,6 +177,28 @@ export default function Edit({
                     </main>
                 </div>
             </section>
+
+            {profileModalOpen && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setProfileModalOpen(false); }}>
+                    <div role="dialog" aria-modal="true" aria-labelledby="profile-modal-title" className="my-auto w-full max-w-lg rounded-3xl bg-white p-6 shadow-2xl sm:p-8">
+                        <div className="flex items-start justify-between gap-4">
+                            <div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#087451]">Account Settings</p><h2 id="profile-modal-title" className="mt-1 text-2xl font-semibold text-[#073d2f]">Edit Profile</h2><p className="mt-1 text-sm text-stone-500">Update your name, email, or profile picture.</p></div>
+                            <button type="button" onClick={() => setProfileModalOpen(false)} aria-label="Close modal" className="rounded-full p-2 text-stone-500 hover:bg-stone-100"><ArmsIcon name="x" /></button>
+                        </div>
+                        <form onSubmit={(event) => { submitProfile(event); }} className="mt-6 space-y-5">
+                            <div className="flex flex-col items-center">
+                                <div className="h-24 w-24 overflow-hidden rounded-full bg-[#0b5d45] text-2xl font-semibold text-white">{avatarPreview ? <img src={avatarPreview} alt="Profile preview" className="h-full w-full object-cover" /> : <div className="grid h-full w-full place-items-center">{initials(form.data.name || profile.name)}</div>}</div>
+                                <label className="mt-3 cursor-pointer rounded-full bg-emerald-50 px-4 py-2 text-sm font-semibold text-[#087451] hover:bg-emerald-100">Change photo<input type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => form.setData('avatar', event.currentTarget.files?.[0] ?? null)} /></label>
+                                <p className="mt-2 text-xs text-stone-500">JPG, PNG, or WebP · Max 2 MB</p>
+                                {form.errors.avatar && <p className="mt-1 text-xs text-red-600">{form.errors.avatar}</p>}
+                            </div>
+                            <div><label htmlFor="modal-profile-name" className="block text-sm font-medium text-stone-700">Complete Name</label><input id="modal-profile-name" value={form.data.name} onChange={(event) => form.setData('name', event.target.value)} className="mt-2 h-11 w-full rounded-xl border-stone-300" />{form.errors.name && <p className="mt-1 text-xs text-red-600">{form.errors.name}</p>}</div>
+                            <div><label htmlFor="modal-profile-email" className="block text-sm font-medium text-stone-700">Email Address</label><input id="modal-profile-email" type="email" value={form.data.email} onChange={(event) => form.setData('email', event.target.value)} className="mt-2 h-11 w-full rounded-xl border-stone-300" />{form.errors.email && <p className="mt-1 text-xs text-red-600">{form.errors.email}</p>}</div>
+                            <div className="flex justify-end gap-3 border-t border-stone-100 pt-5"><button type="button" onClick={() => { resetProfile(); setProfileModalOpen(false); }} className="rounded-xl border border-stone-300 px-4 py-2.5 text-sm font-semibold text-stone-700 hover:bg-stone-50">Cancel</button><button disabled={form.processing} className="rounded-xl bg-[#087451] px-5 py-2.5 text-sm font-semibold text-white hover:bg-[#055b40] disabled:opacity-50">{form.processing ? 'Saving…' : 'Save Changes'}</button></div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

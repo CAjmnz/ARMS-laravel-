@@ -217,6 +217,7 @@ class UserManagementController extends Controller
     {
         $this->assertManageable($request, $user);
         DB::table('sessions')->where('user_id', $user->id)->delete();
+        DB::table('arms_tab_sessions')->where('user_id', $user->id)->delete();
         return back()->with('success', 'The selected user was logged out successfully.');
     }
 
@@ -227,6 +228,7 @@ class UserManagementController extends Controller
         $user->update(['account_status' => $blocked ? 'active' : 'blocked']);
         if (! $blocked) {
             DB::table('sessions')->where('user_id', $user->id)->delete();
+            DB::table('arms_tab_sessions')->where('user_id', $user->id)->delete();
         }
         return back()->with('success', $blocked ? 'User account was unblocked successfully.' : 'User account was blocked successfully.');
     }
@@ -310,6 +312,7 @@ class UserManagementController extends Controller
         ]);
         $folderIds = $validated['folder_ids'] ?? [];
         $documentIds = $validated['document_ids'] ?? [];
+
         $user->loadMissing('roles');
         $canDownload = $user->roleLevel() >= 2;
 

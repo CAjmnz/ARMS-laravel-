@@ -58,7 +58,7 @@ export default function UserPortalLayout({ children, title, description }: Props
                         <Dropdown>
                             <Dropdown.Trigger>
                                 <button type="button" className="flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-emerald-50">
-                                    <span className="grid h-10 w-10 place-items-center rounded-full border border-[#c6ead7] bg-[#dff7eb] text-xs font-extrabold text-[#07513c]">{initials(auth.user.name)}</span>
+                                    <span className="grid h-10 w-10 place-items-center overflow-hidden rounded-full border border-[#c6ead7] bg-[#dff7eb] text-xs font-extrabold text-[#07513c]">{auth.user.avatar_path ? <img src={`/storage/${auth.user.avatar_path}`} alt={`${auth.user.name} profile`} className="h-full w-full object-cover" /> : initials(auth.user.name)}</span>
                                     <span className="hidden text-left sm:block"><span className="block max-w-44 truncate text-xs font-bold text-[#18322b]">{auth.user.name}</span><span className="block max-w-44 truncate text-[10px] text-[#71837d]">{auth.user.position ?? auth.roles[0] ?? 'User'}</span></span>
                                 </button>
                             </Dropdown.Trigger>

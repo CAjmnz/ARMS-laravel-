@@ -118,7 +118,7 @@ class UserPortalController extends Controller
                     'status' => $item->latestVersion?->scan_status ?? $item->status,
                     'is_pinned' => (bool) $item->is_pinned,
                     'pin_url' => route('documents.pin', $item),
-                    'viewer_url' => filled($item->latestVersion?->storage_path) ? route('documents.viewer', $item) : null,
+                    'viewer_url' => filled($item->latestVersion?->watermark_path) || filled($item->latestVersion?->storage_path) ? route('documents.viewer', $item) : null,
                     'download_url' => in_array((int) $item->id, $downloadableDocumentIds, true)
                         ? route('documents.download', $item)
                         : null,

@@ -19,12 +19,14 @@ return Application::configure(basePath: dirname(__DIR__))
             'password.changed' => \App\Http\Middleware\EnsurePasswordIsChanged::class,
             'session.timeout' => \App\Http\Middleware\EnforceSessionTimeout::class,
             'permission' => \App\Http\Middleware\RequirePermission::class,
+            'auth' => \App\Http\Middleware\ResolveTabAuthentication::class,
         ]);
     
         $middleware->web(append: [
             \App\Http\Middleware\HandleInertiaRequests::class,
             \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ]);
+
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

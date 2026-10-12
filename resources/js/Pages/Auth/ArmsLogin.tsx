@@ -27,7 +27,13 @@ export default function ArmsLogin({ status }: { status?: string }) {
     });
     const submit: FormEventHandler = (e) => {
         e.preventDefault();
-        post(route("login"), { onFinish: () => reset("password") });
+        // Pass the tab identity explicitly on the login request. This is needed
+        // because the initial login visit has no existing tab-auth mapping yet.
+        const tabId = window.sessionStorage.getItem("arms_tab_id");
+        post(route("login"), {
+            headers: tabId ? { "X-ARMS-Tab-ID": tabId } : {},
+            onFinish: () => reset("password"),
+        });
     };
     return (
         <main className="min-h-screen bg-[#fafaf8] lg:grid lg:grid-cols-[46%_54%]">

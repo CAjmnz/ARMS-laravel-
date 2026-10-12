@@ -41,7 +41,7 @@ class DocumentAccessService
 
             foreach (array_keys($grantedBranch) as $branchFolderId) {
                 $branchFolder = $byId->get((int) $branchFolderId);
-                if (! $branchFolder || ! $branchFolder->is_published) {
+                if (! $branchFolder) {
                     continue;
                 }
 
@@ -99,13 +99,10 @@ class DocumentAccessService
             $this->addDescendants($folderId, $children, $grantedFolderIds);
         }
 
-        $publishedFolderIds = Folder::query()
-            ->whereIn('id', array_keys($grantedFolderIds))
-            ->where('is_published', true)
-            ->pluck('id');
-
+        // Explicit folder grants include documents in the complete granted branch,
+        // including documents stored under unpublished subfolders.
         $inheritedDocumentIds = Document::query()
-            ->whereIn('folder_id', $publishedFolderIds)
+            ->whereIn('folder_id', array_map('intval', array_keys($grantedFolderIds)))
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

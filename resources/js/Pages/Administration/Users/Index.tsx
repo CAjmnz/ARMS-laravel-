@@ -74,8 +74,50 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
     const [accessDocumentSelected, setAccessDocumentSelected] = useState<number[]>([]);
     const [accessLoading, setAccessLoading] = useState(false);
 
+
     const selectedUser = useMemo(() => users.data.find((item) => item.id === selected[0]) ?? null, [selected, users.data]);
     const allSelected = users.data.length > 0 && users.data.every((item) => selected.includes(item.id));
+    const folderIdsForDocument = (documentId: number) => {
+        const document = accessDocuments.find((item) => item.id === documentId);
+        if (!document) return [] as number[];
+        const foldersById = new Map(accessFolders.map((folder) => [folder.id, folder]));
+        const included = new Set<number>();
+
+        // Include every ancestor so the selected file's complete path is checked.
+        let currentId: number | null = document.folder_id;
+        while (currentId && !included.has(currentId)) {
+            included.add(currentId);
+            currentId = foldersById.get(currentId)?.parent_id ?? null;
+        }
+
+        // Include every descendant subfolder beneath the file's containing folder.
+        const stack = [document.folder_id];
+        while (stack.length) {
+            const parentId = stack.pop()!;
+            for (const folder of accessFolders) {
+                if (folder.parent_id === parentId && !included.has(folder.id)) {
+                    included.add(folder.id);
+                    stack.push(folder.id);
+                }
+            }
+        }
+        return [...included];
+    };
+
+    const toggleDocumentAccess = (documentId: number, checked: boolean) => {
+        const relatedFolderIds = folderIdsForDocument(documentId);
+        setAccessDocumentSelected((prev) => checked
+            ? [...new Set([...prev, documentId])]
+            : prev.filter((id) => id !== documentId));
+        setAccessSelected((prev) => {
+            if (checked) return [...new Set([...prev, ...relatedFolderIds])];
+            const stillRequired = new Set<number>();
+            for (const remainingId of accessDocumentSelected.filter((id) => id !== documentId)) {
+                folderIdsForDocument(remainingId).forEach((id) => stillRequired.add(id));
+            }
+            return prev.filter((id) => !relatedFolderIds.includes(id) || stillRequired.has(id));
+        });
+    };
 
     const createForm = useForm({ name:'', username:'', password:'', subsidiary_id:'', department_id:'', role_id:'', allowed_upload:false });
     const editForm = useForm({ name:'', username:'', password:'', subsidiary_id:'', department_id:'', role_id:'' });
@@ -127,10 +169,41 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
         setSelected([user.id]);
         setAccessOpen(true); setAccessLoading(true);
         try {
-            const response = await fetch(route('users.access.data', user.route_key), { headers:{ Accept:'application/json' } });
-            if (!response.ok) throw new Error('Unable to load access.');
+            const tabId = window.sessionStorage.getItem('arms_tab_id');
+            const response = await fetch(route('users.access.data', user.route_key), {
+                headers: { Accept: 'application/json', ...(tabId ? { 'X-ARMS-Tab-ID': tabId } : {}) },
+            });
+            if (!response.ok) throw new Error('Unable to load access. HTTP ' + response.status);
+            if (!(response.headers.get('content-type') ?? '').includes('application/json')) {
+                throw new Error('ARMS could not verify your session for the file list. Refresh the page and try again.');
+            }
             const payload = await response.json();
-            setAccessFolders(payload.folders ?? []); setAccessSelected(payload.selected ?? []); setAccessDocuments(payload.documents ?? []); setAccessDocumentSelected(payload.selected_documents ?? []);
+            const folders: FolderAccess[] = payload.folders ?? [];
+            const documents: DocumentAccessItem[] = payload.documents ?? [];
+            const selectedDocuments: number[] = payload.selected_documents ?? [];
+            const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
+            const expandedFolderIds = new Set<number>(payload.selected ?? []);
+            for (const document of documents.filter((item) => selectedDocuments.includes(item.id))) {
+                let currentId: number | null = document.folder_id;
+                const ancestorVisited = new Set<number>();
+                while (currentId && !ancestorVisited.has(currentId)) {
+                    ancestorVisited.add(currentId);
+                    expandedFolderIds.add(currentId);
+                    currentId = foldersById.get(currentId)?.parent_id ?? null;
+                }
+                const stack = [document.folder_id];
+                const descendantVisited = new Set<number>();
+                while (stack.length) {
+                    const parentId = stack.pop()!;
+                    if (descendantVisited.has(parentId)) continue;
+                    descendantVisited.add(parentId);
+                    expandedFolderIds.add(parentId);
+                    for (const folder of folders) {
+                        if (folder.parent_id === parentId && !descendantVisited.has(folder.id)) stack.push(folder.id);
+                    }
+                }
+            }
+            setAccessFolders(folders); setAccessSelected([...expandedFolderIds]); setAccessDocuments(documents); setAccessDocumentSelected(selectedDocuments);
         } finally { setAccessLoading(false); }
     };
     const openAccess = () => openAccessFor(selectedUser);
@@ -195,7 +268,7 @@ export default function Index({ users, filters, roles, subsidiaries, summary }: 
         {viewerOpen && selectedUser && <div className="fixed inset-0 z-[90] grid place-items-center bg-[#012a21]/50 p-4 backdrop-blur-sm"><form onSubmit={submitViewer} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><h3 className="text-lg font-semibold text-[#073d2f]">Viewer level</h3><p className="mt-1 text-sm text-stone-500">Assign the legacy viewer level for {selectedUser.name}.</p><select value={viewerForm.data.viewer_level} onChange={(e) => viewerForm.setData('viewer_level', Number(e.target.value))} className="mt-5 w-full rounded-xl border-stone-300"><option value={1}>Level 1 — View only</option><option value={2}>Level 2 — View and download</option></select><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setViewerOpen(false)} className="rounded-xl border px-4 py-2">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2 font-semibold text-white">Save</button></div></form></div>}
         {uploaderOpen && selectedUser && <div className="fixed inset-0 z-[90] grid place-items-center bg-[#012a21]/50 p-4 backdrop-blur-sm"><form onSubmit={submitUploader} className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"><h3 className="text-lg font-semibold text-[#073d2f]">Uploader permission</h3><p className="mt-1 text-sm text-stone-500">Enable or disable upload permission for {selectedUser.name}.</p><select value={uploaderForm.data.allowed_upload ? '1':'0'} onChange={(e) => uploaderForm.setData('allowed_upload', e.target.value === '1')} className="mt-5 w-full rounded-xl border-stone-300"><option value="0">No</option><option value="1">Yes</option></select><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setUploaderOpen(false)} className="rounded-xl border px-4 py-2">Cancel</button><button className="rounded-xl bg-arms-green px-5 py-2 font-semibold text-white hover:bg-arms-dark">Save</button></div></form></div>}
 
-        {accessOpen && selectedUser && <div className="fixed inset-0 z-[90] grid place-items-center bg-[#012a21]/55 p-4 backdrop-blur-sm"><div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-center justify-between border-b px-6 py-5"><div><p className="text-xs font-semibold uppercase tracking-wider text-arms-green">User permissions</p><h3 className="text-xl font-semibold text-[#073d2f]">Edit Access — {selectedUser.name}</h3></div><button onClick={() => setAccessOpen(false)} className="text-2xl">×</button></header><div className="min-h-0 flex-1 overflow-y-auto p-6">{accessLoading ? <p className="py-16 text-center text-stone-500">Preparing file access…</p> : <div className="grid gap-6 lg:grid-cols-2"><section><div className="mb-3"><h4 className="font-semibold text-[#073d2f]">Folder access</h4><p className="text-xs text-stone-500">Grant access to a folder path.</p></div><div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-stone-200 p-2">{accessFolders.map(folder => <label key={folder.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-emerald-50" style={{ paddingLeft: `${12 + folder.depth*18}px` }}><input type="checkbox" checked={accessSelected.includes(folder.id)} onChange={(e) => setAccessSelected(prev => e.target.checked ? [...prev,folder.id] : prev.filter(id => id !== folder.id))} /><ArmsIcon name="folder" className="h-4 w-4 text-arms-green" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{folder.name}</span><span className="block truncate text-[11px] text-stone-400">{folder.path}</span></span></label>)}</div></section><section><div className="mb-3"><h4 className="font-semibold text-[#073d2f]">Individual file access</h4><p className="text-xs text-stone-500">Pick specific files this user may open.</p></div><div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-stone-200 p-2">{accessDocuments.map(document => <label key={document.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-emerald-50"><input type="checkbox" checked={accessDocumentSelected.includes(document.id)} onChange={(e) => setAccessDocumentSelected(prev => e.target.checked ? [...prev,document.id] : prev.filter(id => id !== document.id))} /><ArmsIcon name="document" className="h-4 w-4 text-arms-green" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{document.name}</span><span className="block truncate text-[11px] text-stone-400">{document.folder ?? 'Root'}</span></span></label>)}</div></section></div>}</div><footer className="flex items-center justify-between border-t px-6 py-4"><span className="text-sm text-stone-500">{accessSelected.length} folders · {accessDocumentSelected.length} files selected</span><div className="flex gap-3"><button onClick={() => setAccessOpen(false)} className="rounded-xl border px-4 py-2">Cancel</button><button onClick={saveAccess} className="rounded-xl bg-arms-green px-5 py-2 font-semibold text-white hover:bg-arms-dark">Save access</button></div></footer></div></div>}
+        {accessOpen && selectedUser && <div className="fixed inset-0 z-[90] grid place-items-center bg-[#012a21]/55 p-4 backdrop-blur-sm"><div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"><header className="flex items-center justify-between border-b px-6 py-5"><div><p className="text-xs font-semibold uppercase tracking-wider text-arms-green">User permissions</p><h3 className="text-xl font-semibold text-[#073d2f]">Edit Access — {selectedUser.name}</h3></div><button onClick={() => setAccessOpen(false)} className="text-2xl">×</button></header><div className="min-h-0 flex-1 overflow-y-auto p-6">{accessLoading ? <p className="py-16 text-center text-stone-500">Preparing file access…</p> : <div className="grid gap-6 lg:grid-cols-2"><section><div className="mb-3"><h4 className="font-semibold text-[#073d2f]">Folder structure</h4><p className="text-xs text-stone-500">Selecting a filename automatically checks its parent path and the related subfolder structure.</p></div><div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-stone-200 p-2">{accessFolders.map(folder => <label key={folder.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-emerald-50" style={{ paddingLeft: `${12 + folder.depth*18}px` }}><input type="checkbox" checked={accessSelected.includes(folder.id)} onChange={(e) => setAccessSelected(prev => e.target.checked ? [...new Set([...prev,folder.id])] : prev.filter(id => id !== folder.id))} /><ArmsIcon name="folder" className="h-4 w-4 text-arms-green" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{folder.name}</span><span className="block truncate text-[11px] text-stone-400">{folder.path}</span></span></label>)}</div></section><section><div className="mb-3"><h4 className="font-semibold text-[#073d2f]">Individual file access</h4><p className="text-xs text-stone-500">Pick specific files this user may open.</p></div><div className="max-h-[50vh] space-y-1 overflow-y-auto rounded-xl border border-stone-200 p-2">{accessDocuments.map(document => <label key={document.id} className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-emerald-50"><input type="checkbox" checked={accessDocumentSelected.includes(document.id)} onChange={(e) => toggleDocumentAccess(document.id, e.target.checked)} /><ArmsIcon name="document" className="h-4 w-4 text-arms-green" /><span className="min-w-0"><span className="block truncate text-sm font-medium">{document.name}</span><span className="block truncate text-[11px] text-stone-400">{document.folder ?? 'Root'}</span></span></label>)}</div></section></div>}</div><footer className="flex items-center justify-between border-t px-6 py-4"><span className="text-sm text-stone-500">{accessSelected.length} folders · {accessDocumentSelected.length} files selected</span><div className="flex gap-3"><button onClick={() => setAccessOpen(false)} className="rounded-xl border px-4 py-2">Cancel</button><button onClick={saveAccess} className="rounded-xl bg-arms-green px-5 py-2 font-semibold text-white hover:bg-arms-dark">Save access</button></div></footer></div></div>}
 
         {confirmAction && selectedUser && <ConfirmDialog danger={confirmAction === 'delete' || confirmAction === 'block'} title={confirmAction === 'delete' ? 'Delete user?' : confirmAction === 'logout' ? 'Force logout?' : selectedUser.status === 'Blocked' ? 'Unblock user?' : 'Block user?'} message={confirmAction === 'delete' ? `Delete ${selectedUser.name}? This follows the protected-account rule.` : confirmAction === 'logout' ? `End all active sessions for ${selectedUser.name}?` : selectedUser.status === 'Blocked' ? `Restore login access for ${selectedUser.name}?` : `Block ${selectedUser.name} and end active sessions?`} confirmText={confirmAction === 'delete' ? 'Delete user' : confirmAction === 'logout' ? 'Logout user' : selectedUser.status === 'Blocked' ? 'Unblock' : 'Block'} onCancel={() => setConfirmAction(null)} onConfirm={runConfirm} />}
     </AuthenticatedLayout>;

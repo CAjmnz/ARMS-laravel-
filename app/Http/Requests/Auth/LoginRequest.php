@@ -8,6 +8,7 @@ use Illuminate\Auth\Events\Lockout;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -64,7 +65,18 @@ class LoginRequest extends FormRequest
             ]);
         }
 
-        Auth::login($user, $this->boolean('remember'));
+        $tabId = trim((string) $this->header('X-ARMS-Tab-ID', ''));
+        if ($tabId !== '' && strlen($tabId) <= 64 && preg_match('/^[A-Za-z0-9-]+$/', $tabId)) {
+            DB::table('arms_tab_sessions')->updateOrInsert(
+                ['tab_id' => $tabId],
+                ['user_id' => $user->id, 'last_activity' => now(), 'created_at' => now(), 'updated_at' => now()],
+            );
+            Auth::guard('web')->setUser($user);
+            $this->setUserResolver(static fn () => $user);
+        } else {
+            Auth::login($user, $this->boolean('remember'));
+        }
+
         $user->forceFill(['failed_login_attempts' => 0, 'locked_until' => null, 'last_login_at' => now()])->save();
         ActivityLog::query()->create(['user_id' => $user->id, 'event' => 'auth.login', 'description' => 'User signed in.', 'ip_address' => $this->ip(), 'user_agent' => Str::limit((string) $this->userAgent(), 1000)]);
         RateLimiter::clear($this->throttleKey());

@@ -1,4 +1,5 @@
 import ArmsIcon from '@/Components/ArmsIcon';
+import ProtectedPdfCanvas from '@/Components/ProtectedPdfCanvas';
 import PinnedItemsDropdown from '@/Components/PinnedItemsDropdown';
 import InformationDrawer from '@/Components/InformationDrawer';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -1221,10 +1222,8 @@ export default function Manage({
                                         <th className="hidden px-5 py-3.5 lg:table-cell">
                                             Owner / Uploaded by
                                         </th>
-                                        <th className="w-14 px-4 py-3.5">
-                                            <span className="sr-only">
-                                                More actions
-                                            </span>
+                                        <th className="w-24 px-4 py-3.5 text-right">
+                                            Actions
                                         </th>
                                     </tr>
                                 </thead>
@@ -2956,11 +2955,15 @@ function LegacyDocumentViewer({
     const [zoomOpen, setZoomOpen] = useState(false);
     useExclusiveDropdown('viewer-zoom', setZoomOpen);
     const [page, setPage] = useState(1);
+    const [pdfPageCount, setPdfPageCount] = useState(0);
     const [pdfViewMode, setPdfViewMode] = useState<'single' | 'vertical'>(
         'vertical',
     );
     const [verticalPage, setVerticalPage] = useState(1);
     const verticalViewerRef = useRef<HTMLDivElement | null>(null);
+    const dialogRef = useRef<HTMLDivElement | null>(null);
+    const dialogStateRef = useRef({ renameOpen, transferOpen, deleteOpen, close });
+    dialogStateRef.current = { renameOpen, transferOpen, deleteOpen, close };
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const dragging = useRef(false);
     const dragOrigin = useRef({ x: 0, y: 0 });
@@ -3051,6 +3054,11 @@ function LegacyDocumentViewer({
             });
 
             setVerticalPage(activePage);
+            const activeSection = sections[activePage - 1];
+            const visiblePdfPage = activeSection?.querySelector<HTMLCanvasElement>('canvas[data-pdf-page]');
+            if (documents[activePage - 1]?.id === current.id && visiblePdfPage) {
+                setPage(Number(visiblePdfPage.dataset.pdfPage) || 1);
+            }
         };
 
         updateVerticalPage();
@@ -3059,11 +3067,58 @@ function LegacyDocumentViewer({
         return () => {
             viewer.removeEventListener('scroll', updateVerticalPage);
         };
-    }, [pdfViewMode, documents.length, index]);
+    }, [pdfViewMode, documents.length, index, current.id]);
+
+    useEffect(() => {
+        const previousFocus = window.document.activeElement as HTMLElement | null;
+        dialogRef.current?.focus();
+        const handleDialogKeys = (event: KeyboardEvent) => {
+            if ((event.ctrlKey || event.metaKey) && ['s', 'p'].includes(event.key.toLowerCase())) {
+                event.preventDefault();
+                return;
+            }
+            if (event.key === 'Escape') {
+                const state = dialogStateRef.current;
+                if (state.renameOpen) setRenameOpen(false);
+                else if (state.transferOpen) setTransferOpen(false);
+                else if (state.deleteOpen) setDeleteOpen(false);
+                else state.close();
+                return;
+            }
+            if (event.key !== 'Tab' || !dialogRef.current) return;
+            const focusable = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+                'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ));
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (event.shiftKey && window.document.activeElement === first) {
+                event.preventDefault(); last.focus();
+            } else if (!event.shiftKey && window.document.activeElement === last) {
+                event.preventDefault(); first.focus();
+            }
+        };
+        window.addEventListener('keydown', handleDialogKeys);
+        return () => {
+            window.removeEventListener('keydown', handleDialogKeys);
+            previousFocus?.focus?.();
+        };
+    }, []);
 
     useEffect(() => {
         const navigateWithKeyboard = (event: KeyboardEvent) => {
-            if (renameOpen || transferOpen) return;
+            if (renameOpen || transferOpen || deleteOpen) return;
+            if (event.target instanceof HTMLElement && event.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+            if (isPdf && pdfViewMode === 'single' && event.key === 'PageDown') {
+                event.preventDefault();
+                setPage((value) => Math.min(pdfPageCount || value + 1, value + 1));
+                return;
+            }
+            if (isPdf && pdfViewMode === 'single' && event.key === 'PageUp') {
+                event.preventDefault();
+                setPage((value) => Math.max(1, value - 1));
+                return;
+            }
             if (event.key === 'ArrowRight' && index < documents.length - 1) {
                 event.preventDefault();
                 changeDocument(index + 1);
@@ -3075,7 +3130,7 @@ function LegacyDocumentViewer({
         window.addEventListener('keydown', navigateWithKeyboard);
         return () =>
             window.removeEventListener('keydown', navigateWithKeyboard);
-    }, [index, documents.length, renameOpen, transferOpen]);
+    }, [index, documents.length, renameOpen, transferOpen, deleteOpen, isPdf, pdfViewMode, pdfPageCount]);
 
     const resetView = () => {
         setZoom(1);
@@ -3092,6 +3147,8 @@ function LegacyDocumentViewer({
         if (nextIndex < 0 || nextIndex >= documents.length) return;
         const next = documents[nextIndex];
         setCurrent(next);
+        setPdfPageCount(0);
+        setPage(1);
         setRenameValue(next.name);
         setActionsOpen(false);
         setRenameOpen(false);
@@ -3150,13 +3207,21 @@ function LegacyDocumentViewer({
     };
 
     return (
-        <div className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-[#012a21]/65 p-2 backdrop-blur-sm">
+        <div
+            className="fixed inset-0 z-50 grid place-items-center overflow-hidden bg-slate-950/60 p-2 backdrop-blur-sm sm:p-4"
+            onMouseDown={(event) => { if (event.target === event.currentTarget) close(); }}
+            onContextMenu={(event) => event.preventDefault()}
+            onDragStart={(event) => event.preventDefault()}
+        >
             <div
+                ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
-                className="flex h-[96vh] w-full max-w-[98vw] flex-col overflow-hidden rounded-2xl border border-emerald-900/20 bg-white shadow-2xl"
+                aria-label="Protected RMS document viewer"
+                tabIndex={-1}
+                className="flex h-[92vh] w-[95vw] max-w-[1500px] flex-col overflow-hidden rounded-xl border border-emerald-900/20 bg-white shadow-[0_24px_80px_rgba(0,0,0,0.35)] outline-none"
             >
-                <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-emerald-900/20 bg-[#075b43] px-5 py-3 text-white">
+                <header className="relative flex min-h-[60px] flex-wrap items-center justify-between gap-3 border-b border-black/10 bg-[#0F8A5A] px-4 py-2.5 text-white">
                     <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-100">
                             <span className="grid h-7 w-7 place-items-center rounded-lg bg-white/10 text-sm">A</span>
@@ -3173,7 +3238,7 @@ function LegacyDocumentViewer({
                             </p>
 
                             <span className="shrink-0 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-bold whitespace-nowrap">
-                                Page {pdfViewMode === 'single' ? index + 1 : verticalPage} of {documents.length}
+                                {isPdf ? `Page ${Math.min(page, pdfPageCount || 1)} of ${pdfPageCount || '…'}` : `File ${pdfViewMode === 'single' ? index + 1 : verticalPage} of ${documents.length}`}
                             </span>
 
                             <div className="flex shrink-0 items-center gap-2">
@@ -3402,13 +3467,13 @@ function LegacyDocumentViewer({
                                                             type="number"
                                                             min={1}
                                                             value={page}
-                                                            onChange={(event) => setPage(Math.max(1, Number(event.target.value) || 1))}
+                                                            onChange={(event) => setPage(Math.min(pdfPageCount || Number.MAX_SAFE_INTEGER, Math.max(1, Number(event.target.value) || 1)))}
                                                             className="w-14 rounded border-stone-300 py-1 text-center text-xs"
                                                         />
                                                     </label>
                                                     <button
                                                         type="button"
-                                                        onClick={() => setPage((value) => value + 1)}
+                                                        onClick={() => setPage((value) => Math.min(pdfPageCount || value + 1, value + 1))}
                                                         className="rounded-lg border border-stone-200 px-2 py-1.5 hover:bg-stone-50"
                                                     >
                                                         Next
@@ -3432,9 +3497,12 @@ function LegacyDocumentViewer({
                     </div>
                 </header>
                 
-                <div className="flex min-h-0 flex-1 overflow-hidden bg-[#eaf2ee]">
+                <nav aria-label="Document breadcrumb" className="flex h-11 shrink-0 items-center gap-2 overflow-hidden border-b border-[#E5E7EB] bg-white px-5 text-sm text-[#6B7280]">
+                    <span aria-hidden="true">⌂</span><span>Documents</span><span aria-hidden="true">›</span><span className="truncate">{folderPath || 'Current folder'}</span><span aria-hidden="true">›</span><span className="truncate font-semibold text-[#1F2937]">{current.name}</span>
+                </nav>
+                <div className="relative flex min-h-0 flex-1 overflow-hidden bg-[#4B5560]">
                     {showDocumentSidebar && (
-                    <aside className="hidden w-40 shrink-0 flex-col border-r border-emerald-900/10 bg-white md:flex">
+                    <aside className="absolute inset-y-0 left-0 z-20 flex w-[min(78vw,240px)] shrink-0 flex-col border-r border-[#E5E7EB] bg-white shadow-xl md:relative md:inset-auto md:z-auto md:w-[240px] md:shadow-none">
                         <div className="flex items-start justify-between gap-2 border-b border-stone-100 px-3 py-3">
                             <div className="min-w-0">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">Documents</p>
@@ -3515,6 +3583,7 @@ function LegacyDocumentViewer({
                                                         draggable={false}
                                                         src={itemSource}
                                                         alt={item.name}
+                                                        loading="lazy"
                                                         className={
                                                             fit
                                                                 ? 'max-h-[calc(96vh-190px)] max-w-full h-auto w-auto select-none object-contain'
@@ -3528,6 +3597,19 @@ function LegacyDocumentViewer({
                                                         }}
                                                     />
                                                 </div>
+                                            ) : itemIsPdf ? (
+                                                <ProtectedPdfCanvas
+                                                    src={itemSource}
+                                                    page={item.id === current.id ? page : 1}
+                                                    onPageChange={setPage}
+                                                    zoom={zoom}
+                                                    fit={fit}
+                                                    mode="vertical"
+                                                    lazy
+                                                    onPageCount={(count) => { if (item.id === current.id) setPdfPageCount(count); }}
+                                                    onVisiblePageChange={(visiblePage) => { if (item.id === current.id) setPage(visiblePage); }}
+                                                    className="mx-auto w-full"
+                                                />
                                             ) : (
                                                 <iframe
                                                     title={`Uploaded document viewer - ${item.name}`}
@@ -3562,6 +3644,16 @@ function LegacyDocumentViewer({
                                     }}
                                 />
                             </div>
+                        ) : isPdf ? (
+                            <ProtectedPdfCanvas
+                                src={current.viewer_url ?? viewerSource}
+                                page={page}
+                                onPageChange={(nextPage) => setPage(Math.min(Math.max(nextPage, 1), pdfPageCount || nextPage))}
+                                zoom={zoom}
+                                fit={fit}
+                                mode="single"
+                                onPageCount={setPdfPageCount}
+                            />
                         ) : (
                             <iframe
                                 title="Uploaded document viewer"
@@ -3597,7 +3689,7 @@ function LegacyDocumentViewer({
                     </div>
 
                     {showFileDetails && (
-                    <aside className="hidden w-64 shrink-0 overflow-y-auto border-l border-emerald-900/10 bg-white xl:block">
+                    <aside className="absolute inset-y-0 right-0 z-20 flex w-[min(88vw,340px)] shrink-0 flex-col overflow-y-auto border-l border-[#E5E7EB] bg-white shadow-xl xl:relative xl:inset-auto xl:z-auto xl:w-[340px] xl:shadow-none">
                         <div className="flex items-start justify-between gap-2 border-b border-stone-100 px-4 py-4">
                             <div className="min-w-0">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-stone-400">File details</p>
@@ -3635,13 +3727,12 @@ function LegacyDocumentViewer({
                     </aside>
                     )}
                 </div>
-                <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-emerald-900/10 bg-white px-5 py-2.5 text-xs">
-                    <span className="truncate font-semibold text-[#073d2f]">
-                        {current.name}
+                <footer className="flex min-h-[56px] flex-wrap items-center justify-between gap-3 border-t border-[#E5E7EB] bg-white px-5 py-3 text-xs">
+                    <span className="flex min-w-0 items-center gap-2 text-[#6B7280]">
+                        <span aria-hidden="true">🔒</span>
+                        <span className="truncate">This file is protected. Only authorized users can preview and download.</span>
                     </span>
-                    <span className="truncate text-stone-500">
-                        {folderPath}
-                    </span>
+                    <button type="button" onClick={close} className="shrink-0 rounded-lg border border-[#D1D5DB] bg-white px-4 py-2 font-semibold text-[#374151] transition hover:bg-[#F3F4F6] focus:outline-none focus:ring-2 focus:ring-[#0F8A5A]">Close</button>
                 </footer>
             </div>
             {renameOpen && (

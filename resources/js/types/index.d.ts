@@ -8,6 +8,7 @@ export interface User {
     allowed_upload: boolean;
     last_login_at?: string | null;
     email_verified_at?: string;
+    avatar_path?: string | null;
 }
 
 export type PageProps<

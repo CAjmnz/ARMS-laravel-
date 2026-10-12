@@ -8,13 +8,12 @@ use App\Http\Controllers\Auth\PasswordController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
-Route::middleware('guest')->group(function () {
-    Route::get('login', [AuthenticatedSessionController::class, 'create'])
-        ->name('login');
+// Keep the login page reachable in a fresh tab even when another tab is authenticated.
+Route::get('login', [AuthenticatedSessionController::class, 'create'])
+    ->name('login');
 
-    Route::post('login', [AuthenticatedSessionController::class, 'store']);
-
-});
+// Tab-aware login must be allowed even if another tab/account is already authenticated.
+Route::post('login', [AuthenticatedSessionController::class, 'store']);
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)
