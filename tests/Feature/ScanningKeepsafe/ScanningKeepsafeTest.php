@@ -22,6 +22,9 @@ class ScanningKeepsafeTest extends TestCase
 
     public function test_l3_can_create_scanning_request_linked_to_receiving_record(): void
     {
+        // Keep the request-number assertion deterministic regardless of today's date.
+        $this->travelTo(\Carbon\Carbon::parse('2026-10-06 10:00:00'));
+
         $user = $this->userWithRole(Role::LEVEL_3);
         $receiving = ReceivingRecord::query()->create([
             'receiving_number' => 'RCV-20261006-0001',

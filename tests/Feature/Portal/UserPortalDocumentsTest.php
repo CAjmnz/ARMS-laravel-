@@ -25,6 +25,40 @@ class UserPortalDocumentsTest extends TestCase
         $this->seed(RolePermissionSeeder::class);
     }
 
+    public function test_individually_unpublished_tagged_document_is_hidden_until_republished(): void
+    {
+        [, , $document] = $this->records();
+        $document->update(['is_published' => false]);
+        $user = $this->user(Role::LEVEL_2);
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => true,
+        ]);
+
+        $this->actingAs($user)
+            ->get(route('portal.documents'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('documents', 0)
+                ->where('summary.visible_documents', 0));
+
+        $publisher = $this->user(Role::LEVEL_3);
+        $this->actingAs($publisher)
+            ->patch(route('documents.publish', $document))
+            ->assertRedirect();
+
+        $this->actingAs($user)
+            ->get(route('portal.documents'))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('documents', 1)
+                ->where('documents.0.id', $document->id)
+                ->where('documents.0.download_url', fn ($url) => is_string($url) && str_ends_with($url, '/download'))
+                ->where('summary.visible_documents', 1));
+    }
+
     public function test_portal_root_shows_only_authorized_navigation_folders(): void
     {
         [$root, $child, $authorized, $hidden] = $this->records();
@@ -202,7 +236,7 @@ class UserPortalDocumentsTest extends TestCase
                 ->where('currentFolder', null));
     }
 
-    public function test_folder_grant_shows_unpublished_subfolders_and_their_documents(): void
+    public function test_folder_grant_hides_unpublished_subfolders_from_portal_listing(): void
     {
         [$root, $child, $authorized, $hidden] = $this->records();
         $child->update(['is_published' => false]);
@@ -223,13 +257,18 @@ class UserPortalDocumentsTest extends TestCase
                 ->where('folders.0.id', $root->id));
 
         $this->actingAs($user)
+            ->get(route('portal.documents', $root))
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->has('folders', 0)
+                ->has('documents', 0));
+
+        $this->actingAs($user)
             ->get(route('portal.documents', $child))
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
                 ->where('currentFolder.id', $child->id)
-                ->has('documents', 2)
-                ->where('documents.0.id', $authorized->id)
-                ->where('documents.1.id', $hidden->id));
+                ->has('documents', 0));
     }
 
     /** @return array{Folder, Folder, Document, Document} */

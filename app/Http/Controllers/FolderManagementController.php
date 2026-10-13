@@ -128,6 +128,11 @@ class FolderManagementController extends Controller
                 'move_url' => $user->can('move', $item) ? route('documents.move', $item) : null,
                 'delete_url' => $user->can('delete', $item) ? route('documents.destroy', $item) : null,
                 'information_url' => route('documents.information', $item),
+                'is_published' => (bool) $item->is_published,
+                'can_publish' => $user->can('publish', $item),
+                'can_unpublish' => $user->can('unpublish', $item),
+                'publish_url' => ! $item->is_published && $user->can('publish', $item) ? route('documents.publish', $item) : null,
+                'unpublish_url' => $item->is_published && $user->can('unpublish', $item) ? route('documents.unpublish', $item) : null,
             ]) : new \Illuminate\Pagination\LengthAwarePaginator(
                 collect(),
                 0,

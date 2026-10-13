@@ -118,8 +118,11 @@ Route::middleware(['auth', 'active', 'password.changed', 'session.timeout'])->gr
     Route::get('/documents/{document}/edit', [DocumentController::class, 'edit'])->name('documents.edit');
     Route::patch('/documents/{document}', [DocumentController::class, 'update'])->name('documents.update');
     Route::patch('/documents/{document}/move', [DocumentController::class, 'move'])->name('documents.move');
+    Route::patch('/documents/{document}/publish', [DocumentController::class, 'publish'])->name('documents.publish');
+    Route::patch('/documents/{document}/unpublish', [DocumentController::class, 'unpublish'])->name('documents.unpublish');
     Route::delete('/documents/{document}', [DocumentController::class, 'destroy'])->name('documents.destroy');
     Route::get('/documents/{document}/viewer', [DocumentController::class, 'viewer'])->name('documents.viewer');
+    Route::get('/documents/{document}/preview-content', [DocumentController::class, 'previewContent'])->name('documents.preview-content');
     Route::get('/documents/{document}/download', [DocumentController::class, 'downloadViewer'])->name('documents.download');
     Route::get('/documents/{document}/original', [DocumentController::class, 'downloadOriginal'])->name('documents.original');
 

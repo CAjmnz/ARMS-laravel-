@@ -81,6 +81,7 @@ class DocumentAccessService
 
         $directDocumentIds = Document::query()
             ->whereIn('id', $this->activeDocumentGrantIds($user, $ability))
+            ->where('is_published', true)
             ->whereHas('folder', fn ($query) => $query->where('is_published', true))
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
@@ -99,10 +100,13 @@ class DocumentAccessService
             $this->addDescendants($folderId, $children, $grantedFolderIds);
         }
 
-        // Explicit folder grants include documents in the complete granted branch,
-        // including documents stored under unpublished subfolders.
+        // Folder tagging grants access only to documents in published folders.
+        // Unpublished folders may remain visible as navigation containers, but
+        // their documents must stay hidden from lower-level users.
         $inheritedDocumentIds = Document::query()
             ->whereIn('folder_id', array_map('intval', array_keys($grantedFolderIds)))
+            ->where('is_published', true)
+            ->whereHas('folder', fn ($query) => $query->where('is_published', true))
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

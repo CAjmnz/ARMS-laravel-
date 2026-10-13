@@ -71,6 +71,58 @@ class ProtectedDocumentViewerTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['user_id' => $user->id, 'event' => 'document.viewed', 'auditable_id' => $image->id]);
     }
 
+    public function test_authorized_user_can_preview_csv_from_the_protected_copy_only(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document, $viewerPath, $originalPath] = $this->document('Quarterly CSV', 'csv', 'text/csv');
+        Storage::disk('documents')->put($viewerPath, "Department,Total\nFinance,1250\nIT,900\n");
+        Storage::disk('documents')->put($originalPath, "ORIGINAL-SECRET,999999\n");
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+
+        $previewResponse = $this->actingAs($user)->getJson(route('documents.preview-content', $document));
+        $previewResponse->assertOk()
+            ->assertJsonPath('kind', 'table')
+            ->assertJsonPath('rows.0.0', 'Department')
+            ->assertJsonPath('rows.1.0', 'Finance')
+            ->assertJsonMissing(['ORIGINAL-SECRET']);
+        $this->assertStringContainsString('private', (string) $previewResponse->headers->get('cache-control'));
+        $this->assertStringContainsString('no-store', (string) $previewResponse->headers->get('cache-control'));
+
+        $unassigned = $this->userWithRole(Role::LEVEL_1);
+        $this->actingAs($unassigned)->getJson(route('documents.preview-content', $document))->assertForbidden();
+    }
+
+    public function test_authorized_user_can_read_text_from_a_protected_docx_copy(): void
+    {
+        $user = $this->userWithRole(Role::LEVEL_1);
+        [$document, $viewerPath] = $this->document('Policy Notes', 'docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        $temporaryZip = tempnam(sys_get_temp_dir(), 'arms-docx-preview-');
+        $zip = new \ZipArchive();
+        $this->assertIsString($temporaryZip);
+        $this->assertSame(true, $zip->open($temporaryZip, \ZipArchive::CREATE | \ZipArchive::OVERWRITE));
+        $zip->addFromString('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Confidential policy</w:t></w:r></w:p></w:body></w:document>');
+        $zip->close();
+        Storage::disk('documents')->put($viewerPath, (string) file_get_contents($temporaryZip));
+        @unlink($temporaryZip);
+        DocumentAccess::query()->create([
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'can_view' => true,
+            'can_download' => false,
+        ]);
+
+        $this->actingAs($user)
+            ->getJson(route('documents.preview-content', $document))
+            ->assertOk()
+            ->assertJsonPath('kind', 'text')
+            ->assertJsonPath('text', 'Confidential policy');
+    }
+
     public function test_embedded_viewer_uses_the_same_origin_referer_tab_identity(): void
     {
         $user = $this->userWithRole(Role::LEVEL_1);

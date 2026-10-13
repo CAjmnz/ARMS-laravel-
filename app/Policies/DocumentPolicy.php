@@ -16,18 +16,28 @@ class DocumentPolicy
     public function view(User $user, Document $document): bool
     {
         return $user->hasPermission('documents.view')
-            && ($user->roleLevel() >= 3 || $this->access->hasDocumentAccess($user, $document, 'can_view'));
+            && ($user->roleLevel() >= 3 || ($document->is_published && $this->access->hasDocumentAccess($user, $document, 'can_view')));
     }
 
     public function download(User $user, Document $document): bool
     {
         return $user->hasPermission('documents.download')
-            && ($user->roleLevel() >= 3 || $this->access->hasDocumentAccess($user, $document, 'can_download'));
+            && ($user->roleLevel() >= 3 || ($document->is_published && $this->access->hasDocumentAccess($user, $document, 'can_download')));
     }
 
     public function downloadOriginal(User $user, Document $document): bool
     {
         return $user->isSuperUser() && $user->hasPermission('documents.download') && $this->view($user, $document);
+    }
+
+    public function publish(User $user, Document $document): bool
+    {
+        return $user->isSuperUser() || $user->roleLevel() === 3;
+    }
+
+    public function unpublish(User $user, Document $document): bool
+    {
+        return $user->roleLevel() >= 3 && (bool) $document->is_published;
     }
 
     public function update(User $user, Document $document): bool

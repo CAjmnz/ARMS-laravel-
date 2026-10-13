@@ -1,5 +1,7 @@
 import ArmsIcon from '@/Components/ArmsIcon';
 import ProtectedPdfCanvas from '@/Components/ProtectedPdfCanvas';
+import ProtectedDocumentPreview from '@/Components/ProtectedDocumentPreview';
+import { isDocumentImage, isDocumentPdf } from '@/Components/documentPreview';
 import PinnedItemsDropdown from '@/Components/PinnedItemsDropdown';
 import InformationDrawer from '@/Components/InformationDrawer';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
@@ -56,6 +58,11 @@ interface DocumentItem {
     information_url?: string;
     is_pinned?: boolean;
     pin_url?: string;
+    is_published?: boolean;
+    can_publish?: boolean;
+    can_unpublish?: boolean;
+    publish_url?: string | null;
+    unpublish_url?: string | null;
 }
 interface HierarchyNode {
     id: number;
@@ -258,8 +265,11 @@ export default function Manage({
     const [bulkDestinationId, setBulkDestinationId] = useState('');
     const [bulkDownloadProcessing, setBulkDownloadProcessing] = useState(false);
     const [bulkDownloadError, setBulkDownloadError] = useState('');
+    const [tableToolsOpen, setTableToolsOpen] = useState(false);
+    const [tableToolsMessage, setTableToolsMessage] = useState('');
 
     useExclusiveDropdown('manage-new', setNewOpen);
+    useExclusiveDropdown('manage-table-tools', setTableToolsOpen);
     useExclusiveDropdown('manage-bulk', setBulkOpen);
     useExclusiveDropdown(
         'manage-current-folder-actions',
@@ -731,6 +741,62 @@ export default function Manage({
         );
     };
 
+    const tableCsv = useMemo(() => {
+        const escapeCsv = (value: unknown) => {
+            const text = value == null ? '' : String(value);
+            return `"${text.replace(/"/g, '""')}"`;
+        };
+        const rows: unknown[][] = [
+            ['Kind', 'Name', 'Type', 'Modified date / Path', 'Owner / Uploaded by', 'Published', 'Pinned'],
+            ...(pinnedSearchMode
+                ? (pinnedSearch?.data ?? []).map((item) => [
+                      item.kind === 'folder' ? 'Folder' : 'Document', item.name, item.type,
+                      item.path, '', '', item.is_pinned ? 'Yes' : 'No',
+                  ])
+                : [
+                      ...folders.data.map((folder) => [
+                          'Folder', folder.name, 'Folder', folder.updated_at ?? '', folder.owner ?? '',
+                          folder.is_published ? 'Yes' : 'No', folder.is_pinned ? 'Yes' : 'No',
+                      ]),
+                      ...documents.data.map((document) => [
+                          'Document', document.name, document.type, document.modified_at ?? '', document.owner ?? '',
+                          document.is_published ? 'Yes' : 'No', document.is_pinned ? 'Yes' : 'No',
+                      ]),
+                  ]),
+        ];
+        return rows.map((row) => row.map(escapeCsv).join(',')).join('\r\n');
+    }, [folders.data, documents.data, pinnedSearchMode, pinnedSearch?.data]);
+
+    const exportTableCsv = () => {
+        const blob = new Blob(['\uFEFF', tableCsv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `arms-documents-page-${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setTableToolsMessage('Current page exported as CSV.');
+        setTableToolsOpen(false);
+    };
+
+    const copyTableCsv = async () => {
+        try {
+            await navigator.clipboard.writeText(tableCsv);
+            setTableToolsMessage('Current page copied as CSV text.');
+        } catch {
+            setTableToolsMessage('Clipboard access was blocked by the browser. Use Export CSV instead.');
+        }
+        setTableToolsOpen(false);
+    };
+
+    const refreshTable = () => {
+        router.reload();
+        setTableToolsMessage('Refreshing the current table…');
+        setTableToolsOpen(false);
+    };
+
     return (
         <AuthenticatedLayout
             kicker="DOCUMENTS DIRECTORY"
@@ -779,21 +845,32 @@ export default function Manage({
                     ))}
                 </nav>
 
-                <main className="mt-5 overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm">
-                    <header className="flex flex-wrap items-start justify-between gap-4 border-b border-stone-100 px-5 py-5 sm:px-6">
+                <main className="relative mt-5 overflow-visible rounded-[22px] border border-[#d8e5dd] bg-white shadow-[0_18px_55px_rgba(7,61,47,0.08)]">
+                    <header className="relative flex flex-wrap items-start justify-between gap-4 overflow-hidden border-b border-[#d8e5dd] bg-gradient-to-r from-[#073d2f] via-[#0b4b39] to-[#145b43] px-5 py-6 text-white sm:px-7">
+                        <span aria-hidden="true" className="pointer-events-none absolute -right-10 -top-16 h-48 w-48 rounded-full border-[24px] border-white/[0.04]" />
+                        <span aria-hidden="true" className="pointer-events-none absolute right-24 -top-24 h-48 w-48 rounded-full border border-[#d7b65d]/20" />
                         <div>
-                            <h2 className="text-xl font-semibold text-[#073d2f] sm:text-2xl">
+                            <h2 className="relative text-xl font-bold tracking-tight text-white sm:text-2xl">
                                 {pinnedSearchMode
                                     ? 'Pinned Search Results'
                                     : (currentFolder?.name ?? 'Documents')}
                             </h2>
-                            <p className="mt-1 text-sm text-stone-500">
+                            <p className="relative mt-1.5 text-sm text-emerald-50/75">
                                 {pinnedSearchMode
                                     ? 'Pinned items from all accessible locations'
                                     : 'Folders and documents in this location'}
                             </p>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                            {!pinnedSearchMode && currentFolder && (
+                                <span
+                                    title={currentFolder.is_published === true ? 'This folder is published to the User Portal' : 'This folder is not published to the User Portal'}
+                                    className={'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold tracking-wide shadow-sm ' + (currentFolder.is_published === true ? 'border-emerald-200/50 bg-emerald-300/15 text-emerald-100' : 'border-amber-200/50 bg-amber-300/15 text-amber-100')}
+                                >
+                                    <span aria-hidden="true" className={'h-2 w-2 rounded-full ' + (currentFolder.is_published === true ? 'bg-emerald-300' : 'bg-amber-300')} />
+                                    {currentFolder.is_published === true ? 'Published' : 'Unpublished'}
+                                </span>
+                            )}
                             {!pinnedSearchMode && currentFolder && (
                                 <FolderActions
                                     folder={currentFolder}
@@ -810,7 +887,7 @@ export default function Manage({
                                     variant="header"
                                 />
                             )}
-                            <span className="text-sm text-stone-500">
+                            <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold tracking-wide text-white/90 backdrop-blur-sm">
                                 {pinnedSearchMode
                                     ? (pinnedSearch?.total ?? 0)
                                     : itemCount}{' '}
@@ -822,7 +899,7 @@ export default function Manage({
                             </span>
                             {!pinnedSearchMode && (
                                 <div
-                                    className="flex overflow-hidden rounded-lg border border-stone-200 p-0.5"
+                                    className="flex overflow-hidden rounded-xl border border-white/20 bg-black/10 p-1 backdrop-blur-sm"
                                     aria-label="Choose view"
                                 >
                                     <button
@@ -833,8 +910,8 @@ export default function Manage({
                                         className={
                                             'grid h-8 w-9 place-items-center rounded-md text-sm font-bold transition ' +
                                             (view === 'list'
-                                                ? 'bg-arms-green text-white'
-                                                : 'text-stone-500 hover:bg-stone-100')
+                                                ? 'bg-white text-[#073d2f] shadow-sm'
+                                                : 'text-white/75 hover:bg-white/10 hover:text-white')
                                         }
                                     >
                                         ☰
@@ -847,8 +924,8 @@ export default function Manage({
                                         className={
                                             'grid h-8 w-9 place-items-center rounded-md text-lg transition ' +
                                             (view === 'grid'
-                                                ? 'bg-arms-green text-white'
-                                                : 'text-stone-500 hover:bg-stone-100')
+                                                ? 'bg-white text-[#073d2f] shadow-sm'
+                                                : 'text-white/75 hover:bg-white/10 hover:text-white')
                                         }
                                     >
                                         ⊞
@@ -858,7 +935,7 @@ export default function Manage({
                         </div>
                     </header>
 
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-100 px-5 py-4 sm:px-6">
+                    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-[#e5ede8] bg-[#f7faf8] px-5 py-4 sm:px-7">
                         {pinnedSearchMode ? (
                             <div className="flex flex-wrap items-center gap-3 text-sm">
                                 <span className="inline-flex items-center gap-2 rounded-lg bg-emerald-50 px-3 py-2 font-semibold text-arms-green">
@@ -1084,10 +1161,16 @@ export default function Manage({
                                     )}
                                 </div>
 
-                                <span className="text-sm text-stone-500">
+                                <span className={
+                                    'inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs font-semibold ' +
+                                    (selectedItems.size
+                                        ? 'border border-emerald-200 bg-emerald-50 text-[#07583d]'
+                                        : 'border border-[#e0e8e3] bg-white text-stone-500')
+                                }>
+                                    <span className={'h-1.5 w-1.5 rounded-full ' + (selectedItems.size ? 'bg-emerald-600' : 'bg-stone-300')} />
                                     {selectedItems.size
                                         ? `${selectedItems.size} item(s) selected`
-                                        : 'No records selected'}
+                                        : 'Select records to enable bulk actions'}
                                 </span>
                                 {bulkDownloadProcessing && (
                                     <span className="text-sm font-semibold text-arms-green">
@@ -1103,13 +1186,13 @@ export default function Manage({
                             </div>
                         )}
 
-                        <label className="relative block w-full min-w-0 sm:ml-auto sm:w-80 lg:w-96">
+                        <label className="relative block w-full min-w-0 sm:ml-auto sm:w-72 lg:w-80">
                             <ArmsIcon
-                                name="folder"
-                                className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-stone-400"
+                                name="search"
+                                className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400"
                             />
                             <input
-                                defaultValue={filters.search}
+                                value={filters.search}
                                 onChange={(event) =>
                                     updateTable({
                                         search: event.target.value,
@@ -1117,9 +1200,34 @@ export default function Manage({
                                 }
                                 placeholder="Search in Document Management"
                                 aria-label="Search in Document Management"
-                                className="h-11 w-full rounded-xl border-stone-200 bg-stone-50 py-2 pl-12 pr-4 text-sm text-stone-800 placeholder:text-stone-400 focus:border-arms-green focus:bg-white focus:ring-arms-green"
+                                className="h-11 w-full rounded-xl border-[#d9e5df] bg-white py-2 pl-12 pr-4 text-sm text-[#173b30] shadow-sm placeholder:text-stone-400 transition focus:border-arms-green focus:bg-white focus:ring-2 focus:ring-emerald-100"
                             />
                         </label>
+
+                        <div className="relative">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    const nextOpen = !tableToolsOpen;
+                                    if (nextOpen) notifyDropdownOpen('manage-table-tools');
+                                    setTableToolsOpen(nextOpen);
+                                }}
+                                aria-expanded={tableToolsOpen}
+                                className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#d9e5df] bg-white px-3 text-sm font-semibold text-[#173b30] shadow-sm transition hover:bg-emerald-50"
+                            >
+                                <ArmsIcon name="gear" className="h-4 w-4" /> Table tools <span aria-hidden="true">▾</span>
+                            </button>
+                            {tableToolsOpen && (
+                                <div className="absolute right-0 top-12 z-[100] w-60 rounded-xl border border-[#d9e5df] bg-white p-1.5 text-left shadow-[0_16px_40px_rgba(7,61,47,0.18)] ring-1 ring-black/5">
+                                    <button type="button" onClick={exportTableCsv} className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">Export current page to CSV</button>
+                                    <button type="button" onClick={() => void copyTableCsv()} className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">Copy current page data</button>
+                                    <button type="button" onClick={refreshTable} className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">Refresh table</button>
+                                    <div className="my-1 border-t border-stone-100" />
+                                    <button type="button" onClick={() => { updateTable({ search: '', sort: 'name', order: 'asc', per_page: filters.per_page ?? 10 }); setTableToolsMessage('Search and sorting filters cleared.'); setTableToolsOpen(false); }} className="block w-full rounded-lg px-3 py-2.5 text-left text-sm font-medium text-stone-700 hover:bg-emerald-50">Reset search and sorting</button>
+                                    <p className="px-3 pb-2 pt-1 text-[11px] leading-4 text-stone-400">Exports and copy include the currently loaded page only.</p>
+                                </div>
+                            )}
+                        </div>
 
                         <label className="flex items-center gap-2 text-sm text-stone-600">
                             Show
@@ -1130,7 +1238,7 @@ export default function Manage({
                                         per_page: Number(event.target.value),
                                     })
                                 }
-                                className="h-10 rounded-xl border-stone-300 bg-white py-1 pl-3 pr-8 text-sm"
+                                className="h-10 rounded-xl border-[#d9e5df] bg-white py-1 pl-3 pr-8 text-sm font-semibold text-[#173b30] shadow-sm focus:border-arms-green focus:ring-2 focus:ring-emerald-100"
                             >
                                 {[10, 25, 50, 100, 200].map((value) => (
                                     <option key={value} value={value}>
@@ -1140,7 +1248,32 @@ export default function Manage({
                             </select>
                             entries
                         </label>
+
+                        {!pinnedSearchMode && (folders.last_page > 1 || documents.last_page > 1) && (
+                            <div className="flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap rounded-xl border border-[#d9e5df] bg-white px-2 py-1.5">
+                                {folders.last_page > 1 && (
+                                    <>
+                                        <span className="shrink-0 text-[11px] text-stone-500">Folders {folders.current_page}/{folders.last_page}</span>
+                                        <PageButton url={folders.prev_page_url} label="←" />
+                                        <PageButton url={folders.next_page_url} label="→" />
+                                    </>
+                                )}
+                                {documents.last_page > 1 && (
+                                    <>
+                                        <span className="shrink-0 text-[11px] text-stone-500">Files {documents.current_page}/{documents.last_page}</span>
+                                        <PageButton url={documents.prev_page_url} label="←" />
+                                        <PageButton url={documents.next_page_url} label="→" />
+                                    </>
+                                )}
+                            </div>
+                        )}
                     </div>
+                    {tableToolsMessage && (
+                        <div role="status" className="flex items-center justify-between gap-3 border-b border-[#e5ede8] bg-emerald-50/70 px-5 py-2 text-xs font-medium text-[#07583d] sm:px-7">
+                            <span>{tableToolsMessage}</span>
+                            <button type="button" onClick={() => setTableToolsMessage('')} aria-label="Dismiss table status" className="rounded px-2 py-1 hover:bg-emerald-100">Dismiss</button>
+                        </div>
+                    )}
 
                     {pinnedSearchMode ? (
                         <PinnedSearchResults
@@ -1160,11 +1293,11 @@ export default function Manage({
                             </p>
                         </div>
                     ) : view === 'list' ? (
-                        <div className="overflow-x-auto">
-                            <table className="min-w-full divide-y divide-stone-100 text-left">
-                                <thead className="bg-stone-50/80">
-                                    <tr className="text-xs font-semibold uppercase tracking-wide text-stone-500">
-                                        <th className="w-12 px-5 py-3.5 sm:px-6">
+                        <div className="overflow-x-auto rounded-2xl border border-[#d9e5df] bg-white shadow-[0_8px_24px_rgba(7,61,47,0.06)]">
+                            <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left">
+                                <thead className="bg-[#073d2f]">
+                                    <tr className="border-b-2 border-[#d7b65d] text-[11px] font-bold uppercase tracking-[0.14em] text-white/90">
+                                        <th className="w-14 px-5 py-4 sm:px-6">
                                             <input
                                                 id="documents-all"
                                                 type="checkbox"
@@ -1178,7 +1311,7 @@ export default function Manage({
                                                 className="rounded border-stone-300 text-arms-green focus:ring-arms-green"
                                             />
                                         </th>
-                                        <th className="px-5 py-3.5">
+                                        <th className="px-5 py-4">
                                             <button
                                                 type="button"
                                                 onClick={() =>
@@ -1198,8 +1331,8 @@ export default function Manage({
                                                 Name ↕
                                             </button>
                                         </th>
-                                        <th className="px-5 py-3.5">Type</th>
-                                        <th className="hidden px-5 py-3.5 md:table-cell">
+                                        <th className="px-5 py-4">Type</th>
+                                        <th className="hidden px-5 py-4 md:table-cell">
                                             <button
                                                 type="button"
                                                 onClick={() =>
@@ -1219,15 +1352,15 @@ export default function Manage({
                                                 Modified date ↕
                                             </button>
                                         </th>
-                                        <th className="hidden px-5 py-3.5 lg:table-cell">
+                                        <th className="hidden px-5 py-4 lg:table-cell">
                                             Owner / Uploaded by
                                         </th>
-                                        <th className="w-24 px-4 py-3.5 text-right">
+                                        <th className="w-28 px-5 py-4 text-right">
                                             Actions
                                         </th>
                                     </tr>
                                 </thead>
-                                <tbody className="divide-y divide-stone-100">
+                                <tbody className="divide-y divide-[#edf2ef] [&>tr:nth-child(even)]:bg-[#fbfcfa] [&>tr:hover]:bg-[#f0f7f2]">
                                     {folders.data.map((folder) => (
                                         <FolderRow
                                             key={'folder-' + folder.id}
@@ -1336,51 +1469,62 @@ export default function Manage({
                         </div>
                     )}
 
-                    {!pinnedSearchMode &&
-                        (folders.last_page > 1 || documents.last_page > 1) && (
-                            <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-stone-100 px-5 py-4 text-sm sm:px-6">
-                                <div className="flex flex-wrap gap-3 text-stone-500">
+                    {!pinnedSearchMode && (
+                        <footer className="mx-5 mb-5 mt-4 flex flex-col gap-3 rounded-2xl border border-[#d9e5df] bg-[#f8faf9] px-4 py-3 text-sm sm:mx-6 lg:flex-row lg:items-center lg:justify-between">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                                <label className="flex shrink-0 items-center gap-2 text-xs font-medium text-stone-600">
+                                    Show
+                                    <select
+                                        aria-label="Folders and files per page (bottom)"
+                                        value={filters.per_page ?? 10}
+                                        onChange={(event) =>
+                                            updateTable({
+                                                per_page: Number(event.target.value),
+                                            })
+                                        }
+                                        className="rounded-lg border-stone-300 bg-white py-1.5 pl-2 pr-7 text-xs focus:border-arms-green focus:ring-arms-green"
+                                    >
+                                        {[10, 25, 50, 100, 200].map((value) => (
+                                            <option key={value} value={value}>
+                                                {value}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    entries
+                                </label>
+                                <span className="text-xs text-stone-500">
+                                    {folders.data.length} folders · {documents.data.length} files
+                                    {typeof documents.total === 'number' ? ' · ' + documents.total + ' files total' : ''}
+                                </span>
+                            </div>
+                            {(folders.last_page > 1 || documents.last_page > 1) && (
+                                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap">
                                     {folders.last_page > 1 && (
-                                        <span>
-                                            Folders: page {folders.current_page}{' '}
-                                            of {folders.last_page}
+                                        <span className="mr-1 text-xs text-stone-500">
+                                            Folders {folders.current_page}/{folders.last_page}
+                                        </span>
+                                    )}
+                                    {folders.last_page > 1 && (
+                                        <PageButton url={folders.prev_page_url} label="← Previous folders" />
+                                    )}
+                                    {folders.last_page > 1 && (
+                                        <PageButton url={folders.next_page_url} label="Next folders →" />
+                                    )}
+                                    {documents.last_page > 1 && (
+                                        <span className="ml-1 mr-1 text-xs text-stone-500">
+                                            Files {documents.current_page}/{documents.last_page}
                                         </span>
                                     )}
                                     {documents.last_page > 1 && (
-                                        <span>
-                                            Files: page {documents.current_page}{' '}
-                                            of {documents.last_page}
-                                        </span>
-                                    )}
-                                </div>
-                                <div className="flex flex-wrap gap-2">
-                                    {folders.last_page > 1 && (
-                                        <PageButton
-                                            url={folders.prev_page_url}
-                                            label="Previous folders"
-                                        />
-                                    )}
-                                    {folders.last_page > 1 && (
-                                        <PageButton
-                                            url={folders.next_page_url}
-                                            label="Next folders"
-                                        />
+                                        <PageButton url={documents.prev_page_url} label="← Previous files" />
                                     )}
                                     {documents.last_page > 1 && (
-                                        <PageButton
-                                            url={documents.prev_page_url}
-                                            label="Previous files"
-                                        />
-                                    )}
-                                    {documents.last_page > 1 && (
-                                        <PageButton
-                                            url={documents.next_page_url}
-                                            label="Next files"
-                                        />
+                                        <PageButton url={documents.next_page_url} label="Next files →" />
                                     )}
                                 </div>
-                            </footer>
-                        )}
+                            )}
+                        </footer>
+                    )}
                 </main>
             </section>
 
@@ -2592,10 +2736,10 @@ function FolderRow({
     return (
         <tr
             className={
-                'group transition ' +
+                'group transition-colors duration-150 ' +
                 (menuOpen || selected
-                    ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200'
-                    : 'hover:bg-emerald-50/40')
+                    ? 'bg-[#e9f5ee] ring-1 ring-inset ring-[#c1dfcd]'
+                    : 'hover:bg-[#f0f7f2]')
             }
         >
             <td className="px-5 py-4 sm:px-6">
@@ -2617,6 +2761,12 @@ function FolderRow({
                         <PinMarker pinned={folder.is_pinned} />
                     </span>
                     <span className="min-w-0 truncate">{folder.name}</span>
+                    <span
+                        title={folder.is_published === true ? 'Published to the User Portal' : 'Not published to the User Portal'}
+                        className={'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ' + (folder.is_published === true ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}
+                    >
+                        {folder.is_published === true ? 'Published' : 'Unpublished'}
+                    </span>
                 </Link>
             </td>
             <td className="px-5 py-4 text-sm text-stone-600">Folder</td>
@@ -2718,12 +2868,20 @@ function FolderCard({
                 </div>
 
                 <div className="px-0.5 pt-2.5">
-                    <p
-                        className="truncate text-sm font-semibold text-[#073d2f]"
-                        title={folder.name}
-                    >
-                        {folder.name}
-                    </p>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <p
+                            className="min-w-0 truncate text-sm font-semibold text-[#073d2f]"
+                            title={folder.name}
+                        >
+                            {folder.name}
+                        </p>
+                        <span
+                            title={folder.is_published === true ? 'Published to the User Portal' : 'Not published to the User Portal'}
+                            className={'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ' + (folder.is_published === true ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}
+                        >
+                            {folder.is_published === true ? 'Published' : 'Unpublished'}
+                        </span>
+                    </div>
                     <p className="mt-1 truncate text-[11px] text-stone-500">
                         {folder.children_count}{' '}
                         {folder.children_count === 1
@@ -2731,23 +2889,6 @@ function FolderCard({
                             : 'subfolders'}{' '}
                         · {formatDate(folder.updated_at)}
                     </p>
-                    <span
-                        className="mt-2 inline-flex rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                        style={{
-                            backgroundColor:
-                                folder.is_published === true
-                                    ? '#059669'
-                                    : '#fef3c7',
-                            color:
-                                folder.is_published === true
-                                    ? '#ffffff'
-                                    : '#92400e',
-                        }}
-                    >
-                        {folder.is_published === true
-                            ? 'Published'
-                            : 'Unpublished'}
-                    </span>
                 </div>
             </Link>
         </article>
@@ -2772,9 +2913,7 @@ function withArmsTabId(url: string | null | undefined): string | null {
 }
 
 function DocumentThumbnail({ document }: { document: DocumentItem }) {
-    const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(
-        document.type.toUpperCase(),
-    );
+    const isImage = isDocumentImage(document.type, document.name);
     if (!document.viewer_url)
         return <ArmsIcon name="document" className="h-9 w-9 text-arms-green" />;
     if (isImage)
@@ -2819,10 +2958,10 @@ function DocumentRow({
     return (
         <tr
             className={
-                'transition ' +
+                'transition-colors duration-150 ' +
                 (menuOpen || selected
-                    ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-200'
-                    : 'hover:bg-emerald-50/40')
+                    ? 'bg-[#e9f5ee] ring-1 ring-inset ring-[#c1dfcd]'
+                    : 'hover:bg-[#f0f7f2]')
             }
         >
             <td className="px-5 py-4 sm:px-6">
@@ -2843,7 +2982,13 @@ function DocumentRow({
                         <ArmsIcon name="document" className="h-5 w-5" />
                         <PinMarker pinned={document.is_pinned} />
                     </span>
-                    <span>{document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}</span>
+                    <span className="min-w-0 text-left">{document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}</span>
+                    <span
+                        title={document.is_published === true ? 'Published to the User Portal' : 'Not published to the User Portal'}
+                        className={'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ' + (document.is_published === true ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}
+                    >
+                        {document.is_published === true ? 'Published' : 'Unpublished'}
+                    </span>
                 </button>
             </td>
             <td className="px-5 py-4 text-sm">{document.type}</td>
@@ -2931,12 +3076,20 @@ function DocumentCard({
                     <PinMarker pinned={document.is_pinned} />
                 </div>
                 <div className="px-3 pb-3 pt-2.5">
-                    <p
-                        className="truncate text-sm font-semibold text-[#073d2f]"
-                        title={document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
-                    >
-                        {document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
-                    </p>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                        <p
+                            className="min-w-0 truncate text-sm font-semibold text-[#073d2f]"
+                            title={document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
+                        >
+                            {document.name.toLowerCase().endsWith('.' + document.type.toLowerCase()) ? document.name : document.name + '.' + document.type.toLowerCase()}
+                        </p>
+                        <span
+                            title={document.is_published === true ? 'Published to the User Portal' : 'Not published to the User Portal'}
+                            className={'shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ' + (document.is_published === true ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800')}
+                        >
+                            {document.is_published === true ? 'Published' : 'Unpublished'}
+                        </span>
+                    </div>
                     <p className="mt-1 truncate text-[11px] text-stone-500">
                         {document.type} · {formatDate(document.modified_at)}
                     </p>
@@ -2993,10 +3146,8 @@ function LegacyDocumentViewer({
         pdfViewMode === 'vertical'
             ? documents[verticalPage - 1] ?? current
             : current;
-    const isImage = ['PNG', 'JPG', 'JPEG', 'GIF', 'WEBP', 'BMP'].includes(
-        current.type.toUpperCase(),
-    );
-    const isPdf = current.type.toUpperCase() === 'PDF';
+    const isImage = isDocumentImage(current.type, current.name);
+    const isPdf = isDocumentPdf(current.type, current.name);
     const protectedViewerUrl = withArmsTabId(current.viewer_url);
     const viewerSource =
         protectedViewerUrl && isPdf
@@ -3573,16 +3724,8 @@ function LegacyDocumentViewer({
                     {pdfViewMode === 'vertical' ? (
                         <div className="flex min-h-full flex-col items-center gap-6">
                             {documents.map((item, itemIndex) => {
-                                const itemIsImage = [
-                                    'PNG',
-                                    'JPG',
-                                    'JPEG',
-                                    'GIF',
-                                    'WEBP',
-                                    'BMP',
-                                ].includes(item.type.toUpperCase());
-                                const itemIsPdf =
-                                    item.type.toUpperCase() === 'PDF';
+                                const itemIsImage = isDocumentImage(item.type, item.name);
+                                const itemIsPdf = isDocumentPdf(item.type, item.name);
                                 const protectedItemUrl = withArmsTabId(item.viewer_url);
                                 const itemSource = protectedItemUrl
                                     ? itemIsPdf
@@ -3631,11 +3774,7 @@ function LegacyDocumentViewer({
                                                     className="mx-auto w-full"
                                                 />
                                             ) : (
-                                                <iframe
-                                                    title={`Uploaded document viewer - ${item.name}`}
-                                                    src={itemSource}
-                                                    className="h-[80vh] min-h-[520px] w-full rounded bg-white"
-                                                />
+                                                <ProtectedDocumentPreview viewerUrl={protectedItemUrl!} filename={item.name} />
                                             )
                                         ) : (
                                             <div className="grid min-h-[520px] place-items-center text-stone-500">
@@ -3675,11 +3814,7 @@ function LegacyDocumentViewer({
                                 onPageCount={setPdfPageCount}
                             />
                         ) : (
-                            <iframe
-                                title="Uploaded document viewer"
-                                src={viewerSource}
-                                className="h-full min-h-[520px] w-full rounded bg-white"
-                            />
+                            <ProtectedDocumentPreview viewerUrl={protectedViewerUrl!} filename={current.name} />
                         )
                     ) : (
                         <div className="grid h-full place-items-center bg-white text-stone-500">
@@ -3891,6 +4026,8 @@ function DocumentActions({
     onOpenChange: (open: boolean) => void;
 }) {
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
     const [renameOpen, setRenameOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [transferOpen, setTransferOpen] = useState(false);
@@ -3900,6 +4037,27 @@ function DocumentActions({
         onOpenChange(false);
         onOpen(document);
     };
+    useEffect(() => {
+        if (!open) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target as Node;
+            if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) onOpenChange(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onOpenChange(false);
+        };
+        const closeOnViewportChange = () => onOpenChange(false);
+        window.document.addEventListener('pointerdown', handlePointerDown, true);
+        window.document.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('scroll', closeOnViewportChange, true);
+        window.addEventListener('resize', closeOnViewportChange);
+        return () => {
+            window.document.removeEventListener('pointerdown', handlePointerDown, true);
+            window.document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('scroll', closeOnViewportChange, true);
+            window.removeEventListener('resize', closeOnViewportChange);
+        };
+    }, [open, onOpenChange]);
     const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
         const rect = event.currentTarget.getBoundingClientRect();
@@ -3960,8 +4118,11 @@ function DocumentActions({
     return (
         <div className="inline-block text-left">
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={toggle}
+                aria-expanded={open}
+                aria-haspopup="menu"
                 aria-label={'Actions for ' + document.name}
                 className={
                     'rounded-lg px-2 py-1 text-lg leading-none transition ' +
@@ -3974,6 +4135,8 @@ function DocumentActions({
             </button>
             {open && (
                 <div
+                    ref={menuRef}
+                    role="menu"
                     className="fixed z-[80] w-52 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
                 >
@@ -3999,6 +4162,30 @@ function DocumentActions({
                                 }
                             />
                             {document.is_pinned ? 'Unpin' : 'Pin'}
+                        </button>
+                    )}
+                    {document.publish_url && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onOpenChange(false);
+                                router.patch(document.publish_url!, {}, { preserveScroll: true });
+                            }}
+                            className="block w-full rounded-lg px-3 py-2 text-left text-emerald-800 hover:bg-emerald-50"
+                        >
+                            Publish
+                        </button>
+                    )}
+                    {document.unpublish_url && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onOpenChange(false);
+                                router.patch(document.unpublish_url!, {}, { preserveScroll: true });
+                            }}
+                            className="block w-full rounded-lg px-3 py-2 text-left text-amber-800 hover:bg-amber-50"
+                        >
+                            Unpublish
                         </button>
                     )}
                     {document.information_url && (
@@ -4205,6 +4392,8 @@ function FolderActions({
     variant?: 'default' | 'header';
 }) {
     const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const menuRef = useRef<HTMLDivElement | null>(null);
     const [renameOpen, setRenameOpen] = useState(false);
     const [deleteOpen, setDeleteOpen] = useState(false);
     const [hierarchyOpen, setHierarchyOpen] = useState(false);
@@ -4214,6 +4403,27 @@ function FolderActions({
     const [confirmation, setConfirmation] = useState('');
     const [deletingHierarchy, setDeletingHierarchy] = useState(false);
     const [renameValue, setRenameValue] = useState(folder.name);
+    useEffect(() => {
+        if (!open) return;
+        const handlePointerDown = (event: PointerEvent) => {
+            const target = event.target as Node;
+            if (!triggerRef.current?.contains(target) && !menuRef.current?.contains(target)) onOpenChange(false);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') onOpenChange(false);
+        };
+        const closeOnViewportChange = () => onOpenChange(false);
+        document.addEventListener('pointerdown', handlePointerDown, true);
+        document.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('scroll', closeOnViewportChange, true);
+        window.addEventListener('resize', closeOnViewportChange);
+        return () => {
+            document.removeEventListener('pointerdown', handlePointerDown, true);
+            document.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('scroll', closeOnViewportChange, true);
+            window.removeEventListener('resize', closeOnViewportChange);
+        };
+    }, [open, onOpenChange]);
     const toggle = (event: React.MouseEvent<HTMLButtonElement>) => {
         event.preventDefault();
         event.stopPropagation();
@@ -4305,8 +4515,11 @@ function FolderActions({
     return (
         <div className="inline-block text-left">
             <button
+                ref={triggerRef}
                 type="button"
                 onClick={toggle}
+                aria-expanded={open}
+                aria-haspopup="menu"
                 aria-label={'Actions for folder ' + folder.name}
                 className={
                     variant === 'header'
@@ -4327,6 +4540,8 @@ function FolderActions({
             </button>
             {open && (
                 <div
+                    ref={menuRef}
+                    role="menu"
                     className="fixed z-[80] w-56 rounded-xl border border-stone-200 bg-white p-1.5 text-sm shadow-2xl"
                     style={{ top: menuPosition.top, left: menuPosition.left }}
                 >

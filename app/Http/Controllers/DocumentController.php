@@ -11,6 +11,7 @@ use App\Services\DocumentAccessService;
 use App\Services\DocumentInformationService;
 use App\Services\DocumentFileCleanupService;
 use App\Services\DocumentUploadService;
+use App\Services\ProtectedDocumentPreviewService;
 use App\Services\FolderHierarchyService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\JsonResponse;
@@ -120,6 +121,40 @@ class DocumentController extends Controller
         $this->audit($request, 'document.updated', $document, $old, $document->only(['title', 'description']));
 
         return back()->with('success', 'Document details were saved.');
+    }
+
+    public function publish(Request $request, Document $document): RedirectResponse
+    {
+        $this->authorize('publish', $document);
+
+        if (! $document->is_published) {
+            $document->update([
+                'is_published' => true,
+                'published_by' => $request->user()->id,
+                'published_at' => now(),
+                'unpublished_by' => null,
+                'unpublished_at' => null,
+            ]);
+            $this->audit($request, 'document.published', $document, ['is_published' => false], ['is_published' => true, 'published_by' => $request->user()->id]);
+        }
+
+        return back()->with('success', 'Document published successfully.');
+    }
+
+    public function unpublish(Request $request, Document $document): RedirectResponse
+    {
+        $this->authorize('unpublish', $document);
+
+        if ($document->is_published) {
+            $document->update([
+                'is_published' => false,
+                'unpublished_by' => $request->user()->id,
+                'unpublished_at' => now(),
+            ]);
+            $this->audit($request, 'document.unpublished', $document, ['is_published' => true], ['is_published' => false, 'unpublished_by' => $request->user()->id]);
+        }
+
+        return back()->with('success', 'Document unpublished successfully.');
     }
 
     public function move(Request $request, Document $document): RedirectResponse
@@ -369,6 +404,38 @@ class DocumentController extends Controller
         return $this->stream($version->storage_disk, $version->watermark_path, $version->mime_type, false, $document->title);
     }
 
+    public function previewContent(Request $request, Document $document, ProtectedDocumentPreviewService $previews): JsonResponse
+    {
+        $this->authorize('view', $document);
+        $version = $document->latestVersion;
+
+        if ($version) {
+            $viewerMissing = ! $version->watermark_path
+                || ! Storage::disk($version->storage_disk)->exists($version->watermark_path);
+            if ($viewerMissing || $version->scan_status !== 'ready') {
+                $this->prepareViewerCopy($version);
+                $version->refresh();
+            }
+        }
+
+        abort_unless(
+            $version
+                && $version->scan_status === 'ready'
+                && $version->watermark_path
+                && Storage::disk($version->storage_disk)->exists($version->watermark_path),
+            409,
+            'The protected viewer is not ready.'
+        );
+
+        $extension = strtolower((string) ($version->extension ?: pathinfo($version->watermark_path, PATHINFO_EXTENSION)));
+        $preview = $previews->make($version->storage_disk, $version->watermark_path, $extension);
+
+        return response()->json($preview)
+            ->header('Cache-Control', 'private, no-store, max-age=0')
+            ->header('Pragma', 'no-cache')
+            ->header('X-Content-Type-Options', 'nosniff');
+    }
+
     public function downloadViewer(Request $request, Document $document)
     {
         $this->authorize('download', $document);
@@ -488,6 +555,8 @@ class DocumentController extends Controller
             'document.updated' => ($old['title'] ?? $document->title) !== $document->title
                 ? 'Renamed document "'.($old['title'] ?? $document->title).'" to "'.$document->title.'".'
                 : 'Updated document "'.$document->title.'".',
+            'document.published' => 'Published document "'.$document->title.'".',
+            'document.unpublished' => 'Unpublished document "'.$document->title.'".',
             'document.moved' => 'Moved document "'.$document->title.'"'.($oldPath ? ' from '.implode(' / ', $oldPath) : '').($currentPath ? ' to '.implode(' / ', $currentPath) : '').'.',
             'document.deleted' => 'Deleted document "'.$document->title.'".',
             'document.viewer_downloaded' => 'Downloaded viewer copy of "'.$document->title.'".',

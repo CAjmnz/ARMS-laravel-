@@ -14,8 +14,14 @@ class Document extends Model
 {
     use EncryptsRouteKey, HasFactory, SoftDeletes;
 
+    /** New documents are published unless explicitly created as unpublished. */
+    protected $attributes = [
+        'is_published' => true,
+    ];
+
     protected $fillable = [
         'folder_id', 'title', 'reference_number', 'description', 'document_date', 'status', 'created_by',
+        'is_published', 'unpublished_by', 'unpublished_at', 'published_by', 'published_at',
     ];
 
     protected static function booted(): void
@@ -27,7 +33,12 @@ class Document extends Model
 
     protected function casts(): array
     {
-        return ['document_date' => 'date'];
+        return [
+            'document_date' => 'date',
+            'is_published' => 'boolean',
+            'unpublished_at' => 'datetime',
+            'published_at' => 'datetime',
+        ];
     }
 
     public function folder(): BelongsTo

@@ -60,6 +60,9 @@ class UserPortalController extends Controller
 
         $folderPaginator = Folder::query()
             ->whereIn('id', $visibleFolderIds)
+            // Unpublished folders are never shown as cards in the portal.
+            // Published descendants remain discoverable through their authorized tree.
+            ->where('is_published', true)
             ->when($search !== '', fn ($query) => $query->where('name', 'like', '%'.$search.'%'))
             ->when($search === '', fn ($query) => $query->where('parent_id', $folder?->id))
             ->withCount([

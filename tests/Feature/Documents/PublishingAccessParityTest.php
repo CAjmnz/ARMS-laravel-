@@ -113,6 +113,80 @@ class PublishingAccessParityTest extends TestCase
         }
     }
 
+    public function test_level_three_can_publish_and_unpublish_an_individual_document(): void
+    {
+        [$folder] = $this->folder();
+        $document = Document::query()->create([
+            'folder_id' => $folder->id,
+            'title' => 'Publication Toggle Document',
+            'status' => 'ready',
+            'is_published' => false,
+        ]);
+        $publisher = $this->userWithRole(Role::LEVEL_3);
+
+        $this->actingAs($publisher)
+            ->patch(route('documents.publish', $document))
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('documents', [
+            'id' => $document->id,
+            'is_published' => 1,
+            'published_by' => $publisher->id,
+        ]);
+
+        $this->patch(route('documents.unpublish', $document))
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('documents', [
+            'id' => $document->id,
+            'is_published' => 0,
+            'unpublished_by' => $publisher->id,
+        ]);
+    }
+
+    public function test_level_one_and_two_cannot_publish_or_unpublish_an_individual_document(): void
+    {
+        [$folder] = $this->folder();
+        $document = Document::query()->create([
+            'folder_id' => $folder->id,
+            'title' => 'Protected Publication Controls',
+            'status' => 'ready',
+        ]);
+
+        foreach ([Role::LEVEL_1, Role::LEVEL_2] as $role) {
+            $user = $this->userWithRole($role);
+            $this->actingAs($user)
+                ->patch(route('documents.unpublish', $document))
+                ->assertForbidden();
+            $this->patch(route('documents.publish', $document))
+                ->assertForbidden();
+        }
+    }
+
+    public function test_unpublished_document_denies_direct_viewer_and_download_requests_for_lower_level_users(): void
+    {
+        [$folder] = $this->folder();
+        $document = Document::query()->create([
+            'folder_id' => $folder->id,
+            'title' => 'Hidden Direct URL Document',
+            'status' => 'ready',
+            'is_published' => false,
+        ]);
+
+        foreach ([Role::LEVEL_1, Role::LEVEL_2] as $role) {
+            $user = $this->userWithRole($role);
+            DocumentAccess::query()->create([
+                'document_id' => $document->id,
+                'user_id' => $user->id,
+                'can_view' => true,
+                'can_download' => true,
+            ]);
+
+            $this->actingAs($user)->get(route('documents.viewer', $document))->assertForbidden();
+            $this->get(route('documents.download', $document))->assertForbidden();
+        }
+    }
+
     public function test_published_document_under_unpublished_ancestor_remains_accessible(): void
     {
         [$root] = $this->folder();
